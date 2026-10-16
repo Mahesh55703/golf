@@ -9,22 +9,36 @@ export async function GET() {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    const now = new Date();
+
     const [
+      totalClubs,
+      activeClubs,
+      totalTournaments,
+      publishedTournaments,
+      regOpenTournaments,
+      inProgressTournaments,
+      upcomingTournaments,
       totalSlots,
       assignedSlots,
       totalAssets,
-      totalGallery,
-      recentUploads,
+      recentTournaments,
       recentAudits,
     ] = await Promise.all([
+      prisma.club.count(),
+      prisma.club.count({ where: { isActive: true } }),
+      prisma.tournament.count(),
+      prisma.tournament.count({ where: { status: "PUBLISHED" } }),
+      prisma.tournament.count({ where: { status: "REGISTRATION_OPEN" } }),
+      prisma.tournament.count({ where: { status: "IN_PROGRESS" } }),
+      prisma.tournament.count({ where: { startDate: { gte: now } } }),
       prisma.mediaSlot.count(),
       prisma.mediaSlot.count({ where: { activeAssetId: { not: null } } }),
       prisma.mediaAsset.count({ where: { isArchived: false } }),
-      prisma.galleryItem.count(),
-      prisma.mediaAsset.findMany({
+      prisma.tournament.findMany({
         take: 5,
         orderBy: { createdAt: "desc" },
-        select: { id: true, title: true, url: true, createdAt: true, mimeType: true },
+        include: { hostClub: { select: { name: true } } },
       }),
       prisma.mediaAuditLog.findMany({
         take: 6,
@@ -41,14 +55,20 @@ export async function GET() {
 
     return NextResponse.json({
       stats: {
+        totalClubs,
+        activeClubs,
+        totalTournaments,
+        publishedTournaments,
+        regOpenTournaments,
+        inProgressTournaments,
+        upcomingTournaments,
         totalPages: pages.length,
         totalSlots,
         assignedSlots,
-        missingSlots: totalSlots - assignedSlots,
+        missingSlots: Math.max(0, totalSlots - assignedSlots),
         totalAssets,
-        totalGallery,
       },
-      recentUploads,
+      recentTournaments,
       recentAudits,
     });
   } catch (err: any) {

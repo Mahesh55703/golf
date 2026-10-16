@@ -16,6 +16,8 @@ import {
   Menu,
   X,
   ExternalLink,
+  Trophy,
+  Landmark,
 } from "lucide-react";
 
 interface AdminUser {
@@ -87,6 +89,8 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
   const navigation = [
     { name: "Dashboard", href: "/admin/dashboard", icon: LayoutDashboard },
+    { name: "Tournaments", href: "/admin/tournaments", icon: Trophy },
+    { name: "Clubs", href: "/admin/clubs", icon: Landmark },
     { name: "Website Media", href: "/admin/media", icon: ImageIcon },
     { name: "Media Library", href: "/admin/media-library", icon: FolderKanban },
     { name: "Gallery Manager", href: "/admin/gallery", icon: Sparkles },

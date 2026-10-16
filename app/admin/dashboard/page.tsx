@@ -12,6 +12,9 @@ import {
   ShieldAlert,
   Loader2,
   Sparkles,
+  Trophy,
+  Landmark,
+  Plus,
 } from "lucide-react";
 
 export default function AdminDashboardPage() {
@@ -44,46 +47,56 @@ export default function AdminDashboardPage() {
   }
 
   const stats = data?.stats || {
+    totalClubs: 6,
+    activeClubs: 6,
+    totalTournaments: 6,
+    publishedTournaments: 2,
+    regOpenTournaments: 4,
+    inProgressTournaments: 0,
+    upcomingTournaments: 6,
     totalPages: 8,
     totalSlots: 34,
     assignedSlots: 0,
     missingSlots: 34,
     totalAssets: 0,
-    totalGallery: 6,
   };
 
   const statCards = [
     {
-      label: "Managed Pages",
-      value: stats.totalPages,
-      desc: "Home, Tournaments, Clubs, Gallery, etc.",
-      icon: FileText,
-      color: "bg-white border-slate-200 text-blue-600",
-      badgeBg: "bg-blue-50 text-blue-700",
+      label: "Total Tournaments",
+      value: stats.totalTournaments,
+      desc: `${stats.regOpenTournaments} registration open · ${stats.publishedTournaments} upcoming`,
+      icon: Trophy,
+      color: "bg-white border-slate-200 text-[#9e7932]",
+      badgeBg: "bg-[#faf5eb] text-[#9e7932]",
+      href: "/admin/tournaments",
     },
     {
-      label: "Total Image Slots",
+      label: "Golf Clubs",
+      value: stats.totalClubs,
+      desc: `${stats.activeClubs} active partner clubs`,
+      icon: Landmark,
+      color: "bg-white border-slate-200 text-blue-600",
+      badgeBg: "bg-blue-50 text-blue-700",
+      href: "/admin/clubs",
+    },
+    {
+      label: "Website Media Slots",
       value: stats.totalSlots,
-      desc: "Configured public image insertion points",
+      desc: `${stats.assignedSlots} customized · ${stats.missingSlots} default stock`,
       icon: ImageIcon,
       color: "bg-white border-slate-200 text-emerald-600",
       badgeBg: "bg-emerald-50 text-emerald-700",
+      href: "/admin/media",
     },
     {
-      label: "Custom Assets Assigned",
-      value: stats.assignedSlots,
-      desc: "Live overrides active in production",
-      icon: CheckCircle,
-      color: "bg-white border-slate-200 text-[#9e7932]",
-      badgeBg: "bg-[#faf5eb] text-[#9e7932]",
-    },
-    {
-      label: "Default Fallbacks Active",
-      value: stats.missingSlots,
-      desc: "Slots using default tournament stock",
-      icon: Clock,
-      color: "bg-white border-slate-200 text-amber-600",
-      badgeBg: "bg-amber-50 text-amber-700",
+      label: "Live Tournament Play",
+      value: stats.inProgressTournaments,
+      desc: "Events currently on course in play",
+      icon: TrendingUp,
+      color: "bg-white border-slate-200 text-purple-600",
+      badgeBg: "bg-purple-50 text-purple-700",
+      href: "/admin/tournaments",
     },
   ];
 
@@ -102,12 +115,24 @@ export default function AdminDashboardPage() {
             Real-time telemetry, website media slot assignments, and security activity.
           </p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <Link
+            href="/admin/tournaments"
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#0e2138] text-white font-bold text-xs hover:bg-[#1a365d] active:scale-95 transition-all shadow-sm"
+          >
+            <Trophy size={14} className="text-[#dfbf77]" /> Tournaments
+          </Link>
+          <Link
+            href="/admin/clubs"
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white border border-slate-200 text-slate-800 font-bold text-xs hover:bg-slate-50 active:scale-95 transition-all shadow-xs"
+          >
+            <Landmark size={14} className="text-[#9e7932]" /> Golf Clubs
+          </Link>
           <Link
             href="/admin/media"
-            className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-[#c29b4e] to-[#dfbf77] text-[#0e2138] font-bold text-xs shadow-md shadow-[#c29b4e]/20 hover:brightness-105 active:scale-95 transition-all"
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-[#c29b4e] to-[#dfbf77] text-[#0e2138] font-bold text-xs shadow-md shadow-[#c29b4e]/20 hover:brightness-105 active:scale-95 transition-all"
           >
-            <ImageIcon size={15} /> Manage Website Media
+            <ImageIcon size={14} /> Website Media
           </Link>
         </div>
       </div>
@@ -117,12 +142,13 @@ export default function AdminDashboardPage() {
         {statCards.map((c) => {
           const Icon = c.icon;
           return (
-            <div
+            <Link
               key={c.label}
-              className="p-6 rounded-2xl bg-white border border-slate-200 shadow-sm hover:shadow-md transition-shadow flex flex-col justify-between"
+              href={c.href || "#"}
+              className="p-6 rounded-2xl bg-white border border-slate-200 shadow-sm hover:shadow-md hover:border-[#dfbf77]/60 transition-all flex flex-col justify-between group"
             >
               <div className="flex items-center justify-between mb-4">
-                <span className="text-xs font-bold text-slate-600 uppercase tracking-wider">
+                <span className="text-xs font-bold text-slate-600 uppercase tracking-wider group-hover:text-slate-900 transition-colors">
                   {c.label}
                 </span>
                 <span className={`p-2 rounded-xl ${c.badgeBg}`}>
@@ -133,7 +159,7 @@ export default function AdminDashboardPage() {
                 <span className="text-3xl font-black text-[#0e2138] tracking-tight">{c.value}</span>
                 <p className="text-[11px] text-slate-500 font-medium mt-1">{c.desc}</p>
               </div>
-            </div>
+            </Link>
           );
         })}
       </div>
@@ -187,29 +213,46 @@ export default function AdminDashboardPage() {
             </div>
           </div>
 
-          {/* Recent Uploads */}
+          {/* Recent Tournaments from Database */}
           <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs">
-            <h3 className="text-base font-bold text-slate-900 mb-4">Recently Uploaded Media Assets</h3>
-            {data?.recentUploads?.length ? (
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
-                {data.recentUploads.map((asset: any) => (
-                  <div
-                    key={asset.id}
-                    className="group relative rounded-xl overflow-hidden border border-slate-200 bg-slate-100 aspect-video shadow-xs"
-                  >
-                    <img
-                      src={asset.url}
-                      alt={asset.title}
-                      className="w-full h-full object-cover group-hover:scale-105 transition-transform"
-                    />
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent flex items-end p-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <span className="text-[10px] text-white truncate font-medium">{asset.title}</span>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-base font-bold text-slate-900">Recent Tournaments</h3>
+              <Link href="/admin/tournaments" className="text-xs text-[#9e7932] font-bold hover:underline flex items-center gap-1">
+                View all <ArrowUpRight size={14} />
+              </Link>
+            </div>
+            {data?.recentTournaments?.length ? (
+              <div className="divide-y divide-slate-100">
+                {data.recentTournaments.map((t: any) => (
+                  <div key={t.id} className="py-3 flex items-center justify-between gap-4">
+                    <div className="min-w-0">
+                      <p className="text-sm font-bold text-slate-900 truncate">{t.name}</p>
+                      <p className="text-xs text-slate-500">
+                        {t.hostClub?.name || "Host Club"} · {new Date(t.startDate).toLocaleDateString()}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full uppercase tracking-wider ${
+                        t.status === "REGISTRATION_OPEN"
+                          ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                          : t.status === "PUBLISHED"
+                          ? "bg-blue-50 text-blue-700 border border-blue-200"
+                          : "bg-slate-100 text-slate-700 border border-slate-200"
+                      }`}>
+                        {t.status.replace("_", " ")}
+                      </span>
+                      <Link
+                        href={`/admin/tournaments`}
+                        className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
+                      >
+                        <ArrowUpRight size={14} />
+                      </Link>
                     </div>
                   </div>
                 ))}
               </div>
             ) : (
-              <p className="text-xs text-slate-400 italic py-4">No custom media uploaded yet. Default image stock active.</p>
+              <p className="text-xs text-slate-400 italic py-4">No tournaments in database.</p>
             )}
           </div>
         </div>
