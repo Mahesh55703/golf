@@ -355,6 +355,26 @@ async function seedGolfData() {
       tournamentsCreated++;
     }
 
+    // Seed default division
+    const existingDiv = await prisma.division.findFirst({
+      where: {
+        tournamentId: tournament.id,
+        name: "Open Championship",
+      },
+    });
+
+    if (!existingDiv) {
+      await prisma.division.create({
+        data: {
+          tournamentId: tournament.id,
+          name: "Open Championship",
+          gender: "ALL",
+          minHandicap: null,
+          maxHandicap: t.maxHandicapLimit || null,
+        },
+      });
+    }
+
     // Seed default round 1
     await prisma.round.upsert({
       where: {
