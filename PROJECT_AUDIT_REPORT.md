@@ -269,7 +269,8 @@ flowchart TD
 
 ---
 
-## J. Implementation Update (October 16, 2026 — Phase 3 Foundation)
+
+## J. Implementation Update (October 16, 2026 — Phase 3 Foundation & Phase 3.2 Club & Tournament Backend)
 
 ### Completed Scope
 1. **Version Control Baseline:**
@@ -277,14 +278,35 @@ flowchart TD
    - `.gitignore` updated to safeguard user media uploads (`public/uploads/*`), environment secrets (`.env*`), and compressed archives (`*.zip`).
    - Clean baseline commit created: `cf059f7 ("baseline: Phase 1 & 2 complete with audit report and light theme admin")`.
 2. **Core Golf Domain Schema Design:**
-   - Implemented 8 new database models in `prisma/schema.prisma`: `Club`, `GolfCourse`, `CourseHole`, `TeeSet`, `TeeHoleDistance`, `Tournament`, `Division`, `Round`, `GolferProfile`, `Registration`.
+   - Implemented 10 new database models in `prisma/schema.prisma`: `Club`, `GolfCourse`, `CourseHole`, `TeeSet`, `TeeHoleDistance`, `Tournament`, `Division`, `Round`, `GolferProfile`, `Registration`.
    - Implemented 7 lifecycle enums: `TournamentFormat`, `TournamentAccess`, `TournamentStatus`, `RegistrationStatus`, `PaymentStatus`, `GenderCategory`, `HandicapStatus`.
    - Preserved all 8 existing Phase 2 authentication and media models and tables.
 3. **Database Migration Applied:**
    - Generated named additive migration: `prisma/migrations/20261016130604_add_core_golf_domain`.
    - Successfully deployed to Neon PostgreSQL via `npx prisma migrate deploy`. Existing media and admin accounts remain intact.
-4. **Prisma Client Regeneration & Build Verification:**
-   - Generated updated TypeScript types via `npx prisma generate`.
-   - Verified with `npm run build`: compiled in 1.3s across all 43 routes (Exit Code 0).
-   - Running dev server on port 3000 verified operational (`/api/media` returns 200).
+4. **Idempotent Golf Data Seed (`scripts/seed-golf-data.js`):**
+   - Populated 6 clubs, 6 courses, and 6 tournaments from `lib/data.ts` into Neon PostgreSQL.
+   - Tested for idempotency: first run created records, second run updated without duplicate keys or errors.
+5. **Admin Club Management API:**
+   - `GET /api/admin/clubs`: Pagination, search query, active status filter, course & tournament counts.
+   - `POST /api/admin/clubs`: Zod validation, unique slug verification, audit logging, RBAC (`PLATFORM_ADMIN`).
+   - `GET /api/admin/clubs/[id]`: Full details with courses, tee sets, and tournaments.
+   - `PUT /api/admin/clubs/[id]`: Detail updates, audit logging.
+   - `DELETE /api/admin/clubs/[id]`: Safe soft-deactivation (`isActive: false`), preserving tournaments and history (`SUPER_ADMIN`).
+6. **Admin Tournament Management API:**
+   - `GET /api/admin/tournaments`: Pagination, status/format/club filters, registration count.
+   - `POST /api/admin/tournaments`: Foreign key checks for club and default course, date sequence checks, auto division & round creation, audit logging.
+   - `GET /api/admin/tournaments/[id]`: Full tournament detail with rounds, divisions, and registrations.
+   - `PUT /api/admin/tournaments/[id]`: Strict lifecycle transition validation (`VALID_LIFECYCLE_TRANSITIONS`), field updates.
+   - `DELETE /api/admin/tournaments/[id]`: Safe deletion (hard delete for un-published drafts with 0 registrations, transitions to `CANCELLED` if history or registrations exist).
+7. **Public Website Data Hydration:**
+   - `/clubs`: Connected to `prisma.club.findMany` with fallback to `FALLBACK_CLUBS`.
+   - `/clubs/[slug]`: Connected to `prisma.club.findUnique` with dynamic media resolution (`clubs.[slug].hero`).
+   - `/tournaments`: Connected to `prisma.tournament.findMany` with real registration counts and search/filter.
+   - `/tournaments/[slug]`: Connected to `prisma.tournament.findFirst` with dynamic media resolution (`tournaments.[slug].hero`) and mock fallback.
+8. **Verification:**
+   - `npm run build` executed and passed cleanly across all 37 static & dynamic routes (Exit Code 0).
+   - Unauthorized API requests rejected with HTTP 401 (`{"error":"Unauthorized"}`).
+   - Public pages verified operational with HTTP 200 responses.
+
 

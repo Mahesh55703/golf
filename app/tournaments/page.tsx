@@ -2,8 +2,82 @@ import type { Metadata } from "next";
 import { ArrowDownRight, CalendarDays, Globe2, MapPin } from "lucide-react";
 import { TournamentBrowser } from "@/components/tournament-browser";
 import { CourseVideo } from "@/components/course-video";
-export const metadata: Metadata = { title: "Discover tournaments", description: "Search golf tournaments by location, format, entry fee, and access type." };
-export default function TournamentsPage() {
+import { prisma } from "@/lib/prisma";
+import { tournaments as mockTournaments, type Tournament } from "@/lib/data";
+
+export const dynamic = "force-dynamic";
+
+export const metadata: Metadata = {
+  title: "Discover tournaments",
+  description: "Search golf tournaments by location, format, entry fee, and access type.",
+};
+
+function formatPrismaToUITournament(dbT: any): Tournament {
+  const formatMap: Record<string, any> = {
+    STROKE_PLAY: "Stroke Play",
+    STABLEFORD: "Stableford",
+    MATCH_PLAY: "Match Play",
+    SCRAMBLE: "Scramble",
+  };
+  const accessMap: Record<string, any> = {
+    PUBLIC: "Public",
+    MEMBERS_ONLY: "Members only",
+    INVITATIONAL: "Members only",
+  };
+  const statusMap: Record<string, any> = {
+    REGISTRATION_OPEN: "Registration open",
+    PUBLISHED: "Coming soon",
+    DRAFT: "Coming soon",
+  };
+
+  const location = [dbT.hostClub?.city, dbT.hostClub?.state].filter(Boolean).join(", ") || dbT.hostClub?.country || "Metropolitan District";
+  const region = dbT.hostClub?.country === "India" ? "India" : "International";
+  const registrationsCount = dbT._count?.registrations ?? 0;
+  const spotsLeft = Math.max(0, dbT.fieldCapacity - registrationsCount);
+
+  return {
+    id: dbT.slug,
+    name: dbT.name,
+    club: dbT.hostClub?.name || "PGA Metropolitan Club",
+    location,
+    region,
+    startDate: dbT.startDate.toISOString().split("T")[0],
+    endDate: dbT.endDate.toISOString().split("T")[0],
+    format: formatMap[dbT.format] || "Stroke Play",
+    access: accessMap[dbT.access] || "Public",
+    entryFee: Number(dbT.entryFee) || 0,
+    currency: "USD",
+    spotsLeft,
+    fieldSize: dbT.fieldCapacity,
+    image: dbT.heroImageUrl || "https://images.unsplash.com/photo-1592919505780-303950717480?auto=format&fit=crop&w=1200&q=85",
+    featured: dbT.featured,
+    status: statusMap[dbT.status] || "Registration open",
+    handicapRequired: dbT.handicapRequired,
+  };
+}
+
+export default async function TournamentsPage() {
+  let initialTournaments: Tournament[] = mockTournaments;
+
+  try {
+    const dbTournaments = await prisma.tournament.findMany({
+      where: {
+        status: { in: ["PUBLISHED", "REGISTRATION_OPEN", "REGISTRATION_CLOSED", "IN_PROGRESS"] },
+      },
+      include: {
+        hostClub: true,
+        _count: { select: { registrations: true } },
+      },
+      orderBy: { startDate: "asc" },
+    });
+
+    if (dbTournaments.length > 0) {
+      initialTournaments = dbTournaments.map(formatPrismaToUITournament);
+    }
+  } catch (err) {
+    console.error("Failed to load tournaments from DB, using fallback mock data:", err);
+  }
+
   return (
     <main className="tournaments-page">
       <section className="tournament-page-hero">
@@ -49,7 +123,7 @@ export default function TournamentsPage() {
               <span className="live-dot" /> <span>Official PGA Section Event Registry</span>
             </div>
           </div>
-          <TournamentBrowser />
+          <TournamentBrowser initialTournaments={initialTournaments} />
         </div>
       </section>
       <CourseVideo compact eyebrow="SECTION CHAMPIONSHIP VENUES" />

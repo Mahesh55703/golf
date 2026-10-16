@@ -1,10 +1,10 @@
 "use client";
 import { useMemo, useState } from "react";
 import { Search, SlidersHorizontal, MapPin, CalendarDays, X, ChevronDown } from "lucide-react";
-import { tournaments } from "@/lib/data";
+import { tournaments as defaultTournaments, type Tournament } from "@/lib/data";
 import { TournamentCard } from "@/components/tournament-card";
 
-export function TournamentBrowser() {
+export function TournamentBrowser({ initialTournaments = defaultTournaments }: { initialTournaments?: Tournament[] }) {
   const [search, setSearch] = useState("");
   const [region, setRegion] = useState("All locations");
   const [format, setFormat] = useState("All formats");
@@ -14,7 +14,7 @@ export function TournamentBrowser() {
 
   const results = useMemo(() => {
     const q = search.trim().toLowerCase();
-    const filtered = tournaments.filter((t) => {
+    const filtered = initialTournaments.filter((t) => {
       const matchesSearch = !q || [t.name, t.club, t.location, t.format].some((v) => v.toLowerCase().includes(q));
       const matchesRegion = region === "All locations" || t.region === region;
       const matchesFormat = format === "All formats" || t.format === format;
