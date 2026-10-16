@@ -325,9 +325,29 @@ flowchart TD
    - **Admin Registration Management ([`app/admin/registrations/page.tsx`](file:///G:/golf/app/admin/registrations/page.tsx) & [`app/api/admin/registrations/route.ts`](file:///G:/golf/app/api/admin/registrations/route.ts)):**
      - Complete dashboard to inspect participants, references, declared handicaps, entry fees, and registration/payment statuses.
      - Search across golfer names, emails, references, and tournament names with pagination and status filters.
-10. **Verification:**
-    - `npm run build` compiled cleanly across 42 static & dynamic routes (Exit Code 0).
-    - Automated test script `scripts/test-endpoints.js` executed: 12/12 test assertions PASSED (including valid entry generation, capacity checks, and 409 duplicate registration prevention).
+10. **Phase 3.5 Scoring, Scorecards & Live Leaderboards (October 16, 2026):**
+    - **Additive Scoring Database Schema:**
+      - Added models `Scorecard`, `HoleScore`, `ScorecardAuditLog`, `CompetitionResult`, and enum `ScorecardStatus` (`NOT_STARTED`, `IN_PROGRESS`, `SUBMITTED`, `VERIFIED`, `CORRECTION_NEEDED`, `DISQUALIFIED`, `WITHDRAWN`).
+      - Connected reverse relations with `Round`, `GolferProfile`, `Registration`, `GolfCourse`, `TeeSet`, and `AdminUser`.
+      - Synchronized to Neon PostgreSQL without dropping tables (`prisma db push`) and generated updated Prisma client.
+    - **Scoring Engine (`lib/scoring.ts` & `lib/scoring.js`):**
+      - WHS stroke allocation algorithm allocating strokes received based on hole stroke indexes and course playing handicap. Plus handicap (+H) support.
+      - Stableford points calculation (0 for double bogey or worse, 1 for bogey, 2 for par, 3 for birdie, 4 for eagle, 5 for albatross).
+      - Complete scorecard evaluation aggregating gross strokes, net strokes, stableford points, thru-holes, and completion status.
+      - Leaderboard tie-breaking engine following standard golf countback (back 9, back 6, back 3, hole 18).
+      - Unit test suite (`scripts/test-scoring-engine.js`) passing 5/5 test suites.
+    - **Scoring & Verification APIs:**
+      - `POST /api/admin/scoring/scorecard`: Atomic transaction for saving hole-by-hole scores, calculating running totals, locking verified scorecards, and logging score change audit entries.
+      - `GET /api/admin/scoring/scorecard`: Query scorecards with full hole breakdowns and audit history.
+      - `POST /api/admin/scoring/verify`: Allows `PLATFORM_ADMIN` to verify scorecards, request corrections with audit notes, or unlock scorecards for corrections.
+      - `GET /api/leaderboard`: Live tournament leaderboard computing gross/net/points standings, to-par metrics, and tied rankings.
+    - **Public & Admin UI:**
+      - `LiveLeaderboardView` on `/leaderboards`: Live interactive leaderboard with Gross, Net, and Stableford scoring modes, division switching, and responsive tabular layout.
+      - Admin Scoring & Verification Console (`/admin/scoring`): Round selector, registered competitor field selector, 18-hole front/back 9 score matrix with gross entry, to-par and total metrics, progress saving, submission, and Platform Admin verification controls.
+      - Added "Scoring & Results" to the admin layout navigation bar.
+11. **Verification:**
+    - `node scripts/test-scoring-engine.js` passed all 5 calculation suites.
+    - Production build (`npm run build`) succeeded with Exit Code 0 across all 45 routes with zero TypeScript errors.
 
 
 

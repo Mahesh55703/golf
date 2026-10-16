@@ -1,11 +1,103 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { ArrowUpRight, Trophy, MapPin, CalendarDays, Radio } from "lucide-react";
-import { tournaments } from "@/lib/data";
+import { ArrowUpRight, Trophy } from "lucide-react";
 import { CourseVideo } from "@/components/course-video";
 import { getMediaUrl } from "@/lib/media";
-export const metadata: Metadata = { title: "Leaderboards", description: "Follow tournament standings, gross and net scores, and golf results." };
-const rows=[{pos:1,name:"Aarav Mehta",club:"Central India Golf Open",gross:71,net:69,thru:"F"},{pos:2,name:"Maya Kapoor",club:"Central India Golf Open",gross:72,net:70,thru:"F"},{pos:3,name:"Rohan Shah",club:"Central India Golf Open",gross:73,net:70,thru:"F"},{pos:4,name:"Ishita Rao",club:"Central India Golf Open",gross:74,net:71,thru:"F"},{pos:5,name:"Kabir Singh",club:"Central India Golf Open",gross:75,net:72,thru:"F"}];
-export default async function LeaderboardsPage(){
-  const heroImage = await getMediaUrl("leaderboards.hero.main", "https://images.unsplash.com/photo-1747321752143-aa29fe158a6f?auto=format&fit=crop&w=2200&q=90");
-  return <main><section className="inner-hero" style={{backgroundImage:`linear-gradient(90deg,rgba(14,33,56,.94),rgba(14,33,56,.5)),url('${heroImage}')`}}><div className="container inner-hero-content"><span className="eyebrow eyebrow-light"><span className="eyebrow-line"/> OFFICIAL LIVE SCORING</span><h1>Championship <em>Leaderboards.</em></h1><p>Follow live hole-by-hole standings, gross & net stroke play, and playoff status across the Metropolitan Section.</p><Link href="/tournaments" className="button button-gold">VIEW CHAMPIONSHIPS <ArrowUpRight size={16}/></Link></div></section><section className="section leaderboard-main"><div className="container"><div className="leaderboard-title-row"><div><div className="eyebrow"><span className="eyebrow-line"/> OFFICIAL SCORING PREVIEW</div><h2>PGA Metropolitan <em>Winter Championship.</em></h2><p className="section-description"><MapPin size={14}/> Prestige Golfshire Club <span>·</span> <CalendarDays size={14}/> Nov 14–15, 2026</p></div><span className="sample-status" style={{background:"#0e2138", color:"#dfbf77", border:"1px solid #c29b4e"}}><Radio size={14}/> LIVE TOUR FEED</span></div><div className="leaderboard-card"><div className="leaderboard-card-top"><div><span className="leaderboard-label">ROUND 1 · OFFICIAL STROKE PLAY</span><h3>Championship division standings</h3></div><div className="leaderboard-switch"><span className="selected" style={{background:"#0e2138", color:"#dfbf77"}}>Gross</span><span>Net</span></div></div><div className="leaderboard-table-wrap"><table className="leaderboard-table"><thead><tr><th>POS</th><th>PLAYER</th><th>THRU</th><th>GROSS</th><th>NET</th></tr></thead><tbody>{rows.map(r=><tr key={r.pos}><td><span className={`leader-position ${r.pos===1?"leader-first":""}`} style={r.pos===1?{background:"#c29b4e",color:"#0e2138"}:{}}>{r.pos===1?<Trophy size={15}/>:r.pos}</span></td><td><strong>{r.name}</strong><small>{r.club}</small></td><td>{r.thru}</td><td>{r.gross}</td><td><strong>{r.net}</strong></td></tr>)}</tbody></table></div><div className="leaderboard-footnote">Official PGA Section scoring audit. Real-time scores verified by Tournament Committee.</div></div><div className="leaderboard-event-list"><h3>Other Section Tournament Boards</h3>{tournaments.slice(0,4).map(t=><Link key={t.id} href={`/tournaments/${t.id}`} className="leaderboard-event-row"><span className="leaderboard-event-icon" style={{background:"#0e2138", color:"#dfbf77"}}><Trophy size={18}/></span><span><strong>{t.name}</strong><small>{t.location} · {t.format}</small></span><span className="leaderboard-event-fee" style={{color:"#9e7932", fontWeight:700}}>{t.status}</span><ArrowUpRight size={16}/></Link>)}</div></div></section><CourseVideo compact eyebrow="THE SPIRIT OF COMPETITION"/></main>}
+import { prisma } from "@/lib/prisma";
+import { LiveLeaderboardView } from "@/components/live-leaderboard-view";
+
+export const dynamic = "force-dynamic";
+
+export const metadata: Metadata = {
+  title: "Live Leaderboards",
+  description: "Follow real-time tournament standings, gross and net stroke play, and Stableford points.",
+};
+
+export default async function LeaderboardsPage() {
+  const heroImage = await getMediaUrl(
+    "leaderboards.hero.main",
+    "https://images.unsplash.com/photo-1747321752143-aa29fe158a6f?auto=format&fit=crop&w=2200&q=90"
+  );
+
+  let tournamentsList: Array<{ slug: string; name: string; id: string; status: string; format: string; location: string }> = [];
+
+  try {
+    const dbTournaments = await prisma.tournament.findMany({
+      orderBy: { startDate: "asc" },
+      include: { hostClub: true },
+    });
+
+    tournamentsList = dbTournaments.map((t) => ({
+      id: t.id,
+      slug: t.slug,
+      name: t.name,
+      status: t.status.replace("_", " "),
+      format: t.format.replace("_", " "),
+      location: [t.hostClub?.city, t.hostClub?.state].filter(Boolean).join(", ") || "Metropolitan Area",
+    }));
+  } catch (err) {
+    console.warn("Failed to query tournaments for leaderboard, using fallback:", err);
+  }
+
+  const defaultSlug = tournamentsList[0]?.slug || "indore-open-2026";
+
+  return (
+    <main>
+      <section
+        className="inner-hero"
+        style={{
+          backgroundImage: `linear-gradient(90deg,rgba(14,33,56,.94),rgba(14,33,56,.5)),url('${heroImage}')`,
+        }}
+      >
+        <div className="container inner-hero-content">
+          <span className="eyebrow eyebrow-light">
+            <span className="eyebrow-line" /> OFFICIAL LIVE SCORING
+          </span>
+          <h1>
+            Championship <em>Leaderboards.</em>
+          </h1>
+          <p>
+            Follow live hole-by-hole standings, gross & net stroke play, and playoff status across the Metropolitan Section.
+          </p>
+          <Link href="/tournaments" className="button button-gold">
+            VIEW CHAMPIONSHIPS <ArrowUpRight size={16} />
+          </Link>
+        </div>
+      </section>
+
+      <section className="section leaderboard-main">
+        <div className="container">
+          <LiveLeaderboardView
+            initialTournamentSlug={defaultSlug}
+            availableTournaments={tournamentsList.map((t) => ({ slug: t.slug, name: t.name }))}
+          />
+
+          <div className="leaderboard-event-list mt-12">
+            <h3 className="text-lg font-bold text-slate-900 mb-4">Tour Calendar & Championship Schedule</h3>
+            <div className="space-y-3">
+              {tournamentsList.slice(0, 5).map((t) => (
+                <Link key={t.id} href={`/tournaments/${t.slug}`} className="leaderboard-event-row">
+                  <span className="leaderboard-event-icon" style={{ background: "#0e2138", color: "#dfbf77" }}>
+                    <Trophy size={18} />
+                  </span>
+                  <span>
+                    <strong>{t.name}</strong>
+                    <small>
+                      {t.location} · {t.format}
+                    </small>
+                  </span>
+                  <span className="leaderboard-event-fee" style={{ color: "#9e7932", fontWeight: 700 }}>
+                    {t.status}
+                  </span>
+                  <ArrowUpRight size={16} />
+                </Link>
+              ))}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <CourseVideo compact eyebrow="THE SPIRIT OF COMPETITION" />
+    </main>
+  );
+}

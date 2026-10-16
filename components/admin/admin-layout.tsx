@@ -18,6 +18,7 @@ import {
   ExternalLink,
   Trophy,
   Landmark,
+  CheckCircle,
 } from "lucide-react";
 
 interface AdminUser {
@@ -90,6 +91,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const navigation = [
     { name: "Dashboard", href: "/admin/dashboard", icon: LayoutDashboard },
     { name: "Tournaments", href: "/admin/tournaments", icon: Trophy },
+    { name: "Scoring & Results", href: "/admin/scoring", icon: CheckCircle },
     { name: "Clubs", href: "/admin/clubs", icon: Landmark },
     { name: "Registrations", href: "/admin/registrations", icon: UserCheck },
     { name: "Website Media", href: "/admin/media", icon: ImageIcon },
