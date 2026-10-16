@@ -266,3 +266,25 @@ flowchart TD
   4. Build Admin Tournament CRUD API and views.
   5. Replace mock data in `app/tournaments/page.tsx` with Prisma DB queries.
 - **Exact Next Recommended Task:** Create the `Tournament` and `Club` schema models in `prisma/schema.prisma` and execute `npx prisma migrate dev` to establish the Phase 3 database foundation.
+
+---
+
+## J. Implementation Update (October 16, 2026 — Phase 3 Foundation)
+
+### Completed Scope
+1. **Version Control Baseline:**
+   - Git repository initialized at `G:\golf`.
+   - `.gitignore` updated to safeguard user media uploads (`public/uploads/*`), environment secrets (`.env*`), and compressed archives (`*.zip`).
+   - Clean baseline commit created: `cf059f7 ("baseline: Phase 1 & 2 complete with audit report and light theme admin")`.
+2. **Core Golf Domain Schema Design:**
+   - Implemented 8 new database models in `prisma/schema.prisma`: `Club`, `GolfCourse`, `CourseHole`, `TeeSet`, `TeeHoleDistance`, `Tournament`, `Division`, `Round`, `GolferProfile`, `Registration`.
+   - Implemented 7 lifecycle enums: `TournamentFormat`, `TournamentAccess`, `TournamentStatus`, `RegistrationStatus`, `PaymentStatus`, `GenderCategory`, `HandicapStatus`.
+   - Preserved all 8 existing Phase 2 authentication and media models and tables.
+3. **Database Migration Applied:**
+   - Generated named additive migration: `prisma/migrations/20261016130604_add_core_golf_domain`.
+   - Successfully deployed to Neon PostgreSQL via `npx prisma migrate deploy`. Existing media and admin accounts remain intact.
+4. **Prisma Client Regeneration & Build Verification:**
+   - Generated updated TypeScript types via `npx prisma generate`.
+   - Verified with `npm run build`: compiled in 1.3s across all 43 routes (Exit Code 0).
+   - Running dev server on port 3000 verified operational (`/api/media` returns 200).
+

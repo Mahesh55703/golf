@@ -192,3 +192,300 @@ model AdminAuditLog {
   @@index([adminUserId])
   @@index([action])
 }
+
+// ==========================================
+// Phase 3: Core Golf Domain Models
+// ==========================================
+
+enum TournamentFormat {
+  STROKE_PLAY
+  STABLEFORD
+  MATCH_PLAY
+  SCRAMBLE
+  BETTER_BALL
+}
+
+enum TournamentAccess {
+  PUBLIC
+  MEMBERS_ONLY
+  INVITATIONAL
+}
+
+enum TournamentStatus {
+  DRAFT
+  PUBLISHED
+  REGISTRATION_OPEN
+  REGISTRATION_CLOSED
+  IN_PROGRESS
+  SCORING_REVIEW
+  FINALIZED
+  CANCELLED
+}
+
+enum RegistrationStatus {
+  PENDING
+  CONFIRMED
+  WAITLISTED
+  WITHDRAWN
+  CANCELLED
+}
+
+enum PaymentStatus {
+  UNPAID
+  PAID
+  REFUNDED
+  WAIVED
+  FREE_ENTRY
+}
+
+enum GenderCategory {
+  MEN
+  WOMEN
+  ALL
+}
+
+enum HandicapStatus {
+  UNVERIFIED
+  VERIFIED
+  SELF_DECLARED
+}
+
+model Club {
+  id               String       @id @default(cuid())
+  name             String
+  slug             String       @unique
+  description      String?      @db.Text
+  address          String?
+  city             String?
+  state            String?
+  country          String       @default("India")
+  postalCode       String?
+  phone            String?
+  email            String?
+  website          String?
+  timeZone         String       @default("Asia/Kolkata")
+  isActive         Boolean      @default(true)
+  heroImageUrl     String?
+  logoUrl          String?
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  courses          GolfCourse[]
+  tournaments      Tournament[]
+
+  @@index([slug])
+  @@index([isActive])
+}
+
+model GolfCourse {
+  id               String       @id @default(cuid())
+  clubId           String?
+  name             String
+  slug             String       @unique
+  description      String?      @db.Text
+  holesCount       Int          @default(18)
+  par              Int          @default(72)
+  timeZone         String       @default("Asia/Kolkata")
+  isActive         Boolean      @default(true)
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  club             Club?        @relation(fields: [clubId], references: [id], onDelete: SetNull)
+  holes            CourseHole[]
+  teeSets          TeeSet[]
+  tournaments      Tournament[]
+  rounds           Round[]
+
+  @@index([clubId])
+  @@index([slug])
+}
+
+model CourseHole {
+  id               String            @id @default(cuid())
+  courseId         String
+  holeNumber       Int
+  par              Int               @default(4)
+  strokeIndex      Int               @default(1)
+  description      String?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  course           GolfCourse        @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  distances        TeeHoleDistance[]
+
+  @@unique([courseId, holeNumber])
+  @@index([courseId])
+}
+
+model TeeSet {
+  id               String            @id @default(cuid())
+  courseId         String
+  name             String            // e.g. "Championship Gold", "Blue", "White", "Red"
+  colorHex         String?           // e.g. "#dfbf77", "#2563eb"
+  gender           GenderCategory    @default(ALL)
+  courseRating     Decimal           @db.Decimal(4, 1) // e.g. 74.2
+  slopeRating      Int               // e.g. 138 (55 to 155 WHS standard)
+  totalYardage     Int?
+  totalMeters      Int?
+  par              Int               @default(72)
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  course           GolfCourse        @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  holeDistances    TeeHoleDistance[]
+  divisions        Division[]
+  rounds           Round[]
+
+  @@index([courseId])
+}
+
+model TeeHoleDistance {
+  id               String       @id @default(cuid())
+  teeSetId         String
+  holeId           String
+  yardage          Int?
+  meters           Int?
+
+  teeSet           TeeSet       @relation(fields: [teeSetId], references: [id], onDelete: Cascade)
+  hole             CourseHole   @relation(fields: [holeId], references: [id], onDelete: Cascade)
+
+  @@unique([teeSetId, holeId])
+  @@index([teeSetId])
+  @@index([holeId])
+}
+
+model Tournament {
+  id                   String             @id @default(cuid())
+  name                 String
+  slug                 String             @unique
+  description          String?            @db.Text
+  hostClubId           String?
+  defaultCourseId      String?
+  startDate            DateTime
+  endDate              DateTime
+  timeZone             String             @default("Asia/Kolkata")
+  format               TournamentFormat   @default(STROKE_PLAY)
+  access               TournamentAccess   @default(PUBLIC)
+  status               TournamentStatus   @default(DRAFT)
+  
+  entryFee             Decimal            @default(0.00) @db.Decimal(10, 2)
+  currency             String             @default("USD")
+  
+  fieldCapacity        Int                @default(120)
+  registrationOpenAt   DateTime?
+  registrationCloseAt  DateTime?
+  handicapRequired     Boolean            @default(false)
+  maxHandicapLimit     Decimal?           @db.Decimal(4, 1)
+  
+  heroImageUrl         String?
+  featured             Boolean            @default(false)
+  rulesDocumentUrl     String?
+  
+  publishedAt          DateTime?
+  finalizedAt          DateTime?
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+
+  hostClub             Club?              @relation(fields: [hostClubId], references: [id], onDelete: SetNull)
+  defaultCourse        GolfCourse?        @relation(fields: [defaultCourseId], references: [id], onDelete: SetNull)
+  divisions            Division[]
+  rounds               Round[]
+  registrations        Registration[]
+
+  @@index([slug])
+  @@index([status])
+  @@index([startDate])
+  @@index([hostClubId])
+}
+
+model Division {
+  id               String          @id @default(cuid())
+  tournamentId     String
+  name             String          // e.g. "Championship (Gross)", "Men's A Flight", "Senior Flight"
+  description      String?
+  teeSetId         String?
+  minHandicap      Decimal?        @db.Decimal(4, 1)
+  maxHandicap      Decimal?        @db.Decimal(4, 1)
+  gender           GenderCategory  @default(ALL)
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  tournament       Tournament      @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  teeSet           TeeSet?         @relation(fields: [teeSetId], references: [id], onDelete: SetNull)
+  registrations    Registration[]
+
+  @@index([tournamentId])
+}
+
+model Round {
+  id               String          @id @default(cuid())
+  tournamentId     String
+  courseId         String?
+  teeSetId         String?
+  roundNumber      Int             @default(1)
+  name             String          // e.g. "Round 1 - Preliminary", "Final Round"
+  roundDate        DateTime
+  isScoringLive    Boolean         @default(false)
+  isCompleted      Boolean         @default(false)
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  tournament       Tournament      @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  course           GolfCourse?     @relation(fields: [courseId], references: [id], onDelete: SetNull)
+  teeSet           TeeSet?         @relation(fields: [teeSetId], references: [id], onDelete: SetNull)
+
+  @@unique([tournamentId, roundNumber])
+  @@index([tournamentId])
+}
+
+model GolferProfile {
+  id                   String          @id @default(cuid())
+  firstName            String
+  lastName             String
+  email                String          @unique
+  phone                String?
+  country              String          @default("India")
+  homeClub             String?
+  handicapIndex        Decimal?        @db.Decimal(4, 1) // e.g. 8.4
+  handicapNetworkId    String?         // GHIN / WHS / National Golf ID
+  handicapStatus       HandicapStatus  @default(UNVERIFIED)
+  createdAt            DateTime        @default(now())
+  updatedAt            DateTime        @updatedAt
+
+  registrations        Registration[]
+
+  @@index([email])
+  @@index([handicapIndex])
+}
+
+model Registration {
+  id                   String              @id @default(cuid())
+  referenceNumber      String              @unique // e.g. "GP-2026-X89K2"
+  tournamentId         String
+  golferId             String
+  divisionId           String?
+  
+  status               RegistrationStatus  @default(CONFIRMED)
+  paymentStatus        PaymentStatus       @default(UNPAID)
+  
+  entryFeePaid         Decimal             @default(0.00) @db.Decimal(10, 2)
+  currency             String              @default("USD")
+  
+  handicapSnapshot     Decimal?            @db.Decimal(4, 1)
+  notes                String?
+  
+  registeredAt         DateTime            @default(now())
+  cancelledAt          DateTime?
+  updatedAt            DateTime            @updatedAt
+
+  tournament           Tournament          @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  golfer               GolferProfile       @relation(fields: [golferId], references: [id], onDelete: Cascade)
+  division             Division?           @relation(fields: [divisionId], references: [id], onDelete: SetNull)
+
+  @@unique([tournamentId, golferId, status])
+  @@index([tournamentId])
+  @@index([golferId])
+  @@index([status])
+  @@index([paymentStatus])
+}
+
