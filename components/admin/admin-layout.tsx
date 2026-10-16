@@ -91,6 +91,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     { name: "Dashboard", href: "/admin/dashboard", icon: LayoutDashboard },
     { name: "Tournaments", href: "/admin/tournaments", icon: Trophy },
     { name: "Clubs", href: "/admin/clubs", icon: Landmark },
+    { name: "Registrations", href: "/admin/registrations", icon: UserCheck },
     { name: "Website Media", href: "/admin/media", icon: ImageIcon },
     { name: "Media Library", href: "/admin/media-library", icon: FolderKanban },
     { name: "Gallery Manager", href: "/admin/gallery", icon: Sparkles },

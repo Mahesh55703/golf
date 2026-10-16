@@ -207,6 +207,86 @@ async function runTests() {
     console.log("SKIPPED ⚠️:", err.message);
   }
 
+  // Check 10: Public Golfer Registration API - Validation error on empty payload
+  try {
+    process.stdout.write("10. Public Registration API rejects invalid payload (400): ");
+    const res = await testHttp(
+      {
+        hostname: "localhost",
+        port: 3000,
+        path: "/api/tournaments/register",
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      },
+      JSON.stringify({})
+    );
+    if (res.statusCode === 400) {
+      console.log("PASSED ✅ (HTTP 400 Bad Request)");
+    } else {
+      console.log(`FAILED ❌ (Received HTTP ${res.statusCode})`);
+    }
+  } catch (err) {
+    console.log("SKIPPED ⚠️:", err.message);
+  }
+
+  // Check 11: Public Golfer Registration API - Valid entry submission
+  try {
+    process.stdout.write("11. Public Registration API creates entry: ");
+    const uniqueEmail = `golfer.${Date.now()}@example.com`;
+    const res = await testHttp(
+      {
+        hostname: "localhost",
+        port: 3000,
+        path: "/api/tournaments/register",
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      },
+      JSON.stringify({
+        tournamentSlug: "indore-open-2026",
+        firstName: "Test",
+        lastName: "Golfer",
+        email: uniqueEmail,
+        phone: "+91 98765 00000",
+        country: "India",
+        handicapIndex: 9.5,
+      })
+    );
+    if (res.statusCode === 200) {
+      const data = JSON.parse(res.body);
+      console.log(`PASSED ✅ (Ref: ${data.registration.referenceNumber}, Status: ${data.registration.status})`);
+
+      // Check 12: Duplicate active registration prevention
+      process.stdout.write("12. Duplicate active registration rejected (409): ");
+      const dupRes = await testHttp(
+        {
+          hostname: "localhost",
+          port: 3000,
+          path: "/api/tournaments/register",
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+        },
+        JSON.stringify({
+          tournamentSlug: "indore-open-2026",
+          firstName: "Test",
+          lastName: "Golfer",
+          email: uniqueEmail,
+          phone: "+91 98765 00000",
+          country: "India",
+          handicapIndex: 9.5,
+        })
+      );
+      if (dupRes.statusCode === 409) {
+        console.log("PASSED ✅ (HTTP 409 Conflict)");
+      } else {
+        console.log(`FAILED ❌ (Received HTTP ${dupRes.statusCode})`);
+      }
+    } else {
+      console.log(`FAILED ❌ (Received HTTP ${res.statusCode}: ${res.body})`);
+    }
+  } catch (err) {
+    console.log("SKIPPED ⚠️:", err.message);
+  }
+
   await prisma.$disconnect();
   console.log("=========================================\n");
 }

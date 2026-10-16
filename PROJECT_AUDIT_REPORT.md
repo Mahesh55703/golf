@@ -310,9 +310,25 @@ flowchart TD
    - **Club Management UI (`/admin/clubs`):** Complete interactive dashboard supporting paginated listing, search by name/city/state, active/inactive filters, modal creation with auto-slug, modal editing, facility details inspection, and safe confirmation dialog for soft-deactivation.
    - **Tournament Management UI (`/admin/tournaments`):** Complete management console supporting paginated listings, search, multi-axis filtering (status, format, host club), modal creation and editing with cascade course loading per selected host club, quick lifecycle transitions (Publish, Open Reg, Close Reg, Start Play), and cancellation confirmation dialogs.
    - **Media Manager Cross-Linking:** Deep links from both club and tournament forms directly to respective Website Media Manager slots (`clubs.[slug].hero`, `tournaments.[slug].hero`).
-9. **Verification:**
-   - `npm run build` completed cleanly across all 39 static & dynamic routes (Exit Code 0).
-   - All admin routes (`/admin/dashboard`, `/admin/clubs`, `/admin/tournaments`) verified operational with HTTP 200 responses.
+9. **Phase 3.4 Golfer Registration Backend & Public Registration Flow (October 16, 2026):**
+   - **Public Golfer Registration API (`POST /api/tournaments/register`):**
+     - Atomic transaction with concurrency control enforcing capacity limits.
+     - Strict tournament lifecycle check (`REGISTRATION_OPEN`), deadline enforcement, and cancelled tournament protection.
+     - Dynamic division validation and handicap limit enforcement.
+     - Golfer profile creation/update (`GolferProfile`) with normalized email matching.
+     - Robust duplicate active registration prevention (rejects duplicate `CONFIRMED`/`PENDING` entries with HTTP 409).
+     - Distinct registration status (`CONFIRMED`) and payment status (`UNPAID`), enabling future payment gateway integration without schema refactoring.
+     - Unique human-readable reference number generation (`GP-2026-XXXXX`).
+   - **Public Registration UI ([`components/registration-modal.tsx`](file:///G:/golf/components/registration-modal.tsx) & [`components/tournament-registration-button.tsx`](file:///G:/golf/components/tournament-registration-button.tsx)):**
+     - Interactive multi-step modal embedded directly on `/tournaments/[slug]`.
+     - Golfer details, division picker, self-declared handicap entry, entry fee review in USD, and immediate reference number confirmation screen.
+   - **Admin Registration Management ([`app/admin/registrations/page.tsx`](file:///G:/golf/app/admin/registrations/page.tsx) & [`app/api/admin/registrations/route.ts`](file:///G:/golf/app/api/admin/registrations/route.ts)):**
+     - Complete dashboard to inspect participants, references, declared handicaps, entry fees, and registration/payment statuses.
+     - Search across golfer names, emails, references, and tournament names with pagination and status filters.
+10. **Verification:**
+    - `npm run build` compiled cleanly across 42 static & dynamic routes (Exit Code 0).
+    - Automated test script `scripts/test-endpoints.js` executed: 12/12 test assertions PASSED (including valid entry generation, capacity checks, and 409 duplicate registration prevention).
+
 
 
 

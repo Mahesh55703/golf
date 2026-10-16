@@ -6,6 +6,7 @@ import { tournaments, formatDateRange, formatFee, Tournament } from "@/lib/data"
 import { CourseVideo } from "@/components/course-video";
 import { getMediaUrl } from "@/lib/media";
 import { prisma } from "@/lib/prisma";
+import { TournamentRegistrationButton } from "@/components/tournament-registration-button";
 
 export const dynamic = "force-dynamic";
 
@@ -49,16 +50,34 @@ export default async function TournamentDetailPage({ params }: { params: Promise
   let dbDescription: string | null = null;
   let defaultImage = "/images/tournaments/indore-open-2026.jpg";
 
+  let divisionsList: Array<{ id: string; name: string; minHandicap?: number | null; maxHandicap?: number | null }> = [];
+  let rawTournamentStatus = "DRAFT";
+  let maxHandicapLimit: number | null = null;
+
   try {
     const dbT = await prisma.tournament.findFirst({
       where: { OR: [{ slug }, { id: slug }] },
       include: {
         hostClub: true,
-        registrations: { where: { status: "CONFIRMED" } },
+        divisions: true,
+        registrations: {
+          where: {
+            status: { in: ["CONFIRMED", "PENDING"] },
+          },
+        },
       },
     });
 
     if (dbT) {
+      rawTournamentStatus = dbT.status;
+      maxHandicapLimit = dbT.maxHandicapLimit ? Number(dbT.maxHandicapLimit) : null;
+      divisionsList = dbT.divisions.map((d) => ({
+        id: d.id,
+        name: d.name,
+        minHandicap: d.minHandicap ? Number(d.minHandicap) : null,
+        maxHandicap: d.maxHandicap ? Number(d.maxHandicap) : null,
+      }));
+
       const regCount = dbT.registrations.length;
       const spotsLeft = Math.max(0, dbT.fieldCapacity - regCount);
 
@@ -122,6 +141,7 @@ export default async function TournamentDetailPage({ params }: { params: Promise
     if (!mockT) notFound();
     t = mockT;
     defaultImage = mockT.image;
+    divisionsList = [{ id: "mock-open", name: "Open Championship" }];
   }
 
   const heroImage = await getMediaUrl(`tournaments.${slug}.hero`, defaultImage);
@@ -212,7 +232,7 @@ export default async function TournamentDetailPage({ params }: { params: Promise
                 <CheckCircle2 /> Confirm the tournament format and any handicap requirements with the organizer.
               </li>
               <li>
-                <CheckCircle2 /> Entry fee is displayed in USD for this platform preview.
+                <CheckCircle2 /> Entry fee is displayed in USD for this event preview.
               </li>
             </ul>
           </div>
@@ -227,12 +247,29 @@ export default async function TournamentDetailPage({ params }: { params: Promise
                 ? "Registration is currently open for this event."
                 : `Tournament status: ${t.status}.`}
             </p>
-            <button className="button button-dark" disabled>
-              {t.status === "Registration open" ? "Registration coming soon" : "Notify me when open"}{" "}
-              <ArrowUpRight size={16} />
-            </button>
+
+            <TournamentRegistrationButton
+              tournament={{
+                id: t.id,
+                slug: slug,
+                name: t.name,
+                club: t.club,
+                location: t.location,
+                startDate: t.startDate,
+                endDate: t.endDate,
+                entryFee: t.entryFee,
+                currency: "USD",
+                format: t.format,
+                handicapRequired: t.handicapRequired,
+                maxHandicapLimit: maxHandicapLimit,
+                spotsLeft: t.spotsLeft,
+                status: t.status,
+                divisions: divisionsList,
+              }}
+            />
+
             <small className="entry-card-note">
-              Registration and payments will be connected after the frontend is approved.
+              Secure registration powered by GolfPulse Tournament Services.
             </small>
             <div className="entry-card-divider" />
             <span className="entry-card-label">HOST CLUB</span>
