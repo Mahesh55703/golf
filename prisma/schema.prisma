@@ -1,0 +1,194 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum AdminRole {
+  SUPER_ADMIN
+  PLATFORM_ADMIN
+  CONTENT_MANAGER
+  VIEWER
+}
+
+enum AuditAction {
+  LOGIN_SUCCESS
+  LOGIN_FAILURE
+  LOGOUT
+  PASSWORD_RESET_REQUEST
+  PASSWORD_RESET_SUCCESS
+  USER_INVITE
+  USER_ROLE_CHANGE
+  MEDIA_UPLOAD
+  MEDIA_ASSIGN
+  MEDIA_CROP
+  MEDIA_PUBLISH
+  MEDIA_RESET
+  GALLERY_CREATE
+  GALLERY_UPDATE
+  GALLERY_REORDER
+  GALLERY_DELETE
+}
+
+model AdminUser {
+  id               String          @id @default(cuid())
+  email            String          @unique
+  passwordHash     String
+  name             String
+  role             AdminRole       @default(CONTENT_MANAGER)
+  isActive         Boolean         @default(true)
+  lastLoginAt      DateTime?
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  sessions         AdminSession[]
+  passwordResets   PasswordResetToken[]
+  mediaAssets      MediaAsset[]    @relation("CreatedBy")
+  assignedSlots    MediaSlot[]     @relation("LastUpdatedBy")
+  mediaAuditLogs   MediaAuditLog[]
+  adminAuditLogs   AdminAuditLog[]
+}
+
+model AdminSession {
+  id           String    @id @default(cuid())
+  token        String    @unique
+  adminUserId  String
+  expiresAt    DateTime
+  createdAt    DateTime  @default(now())
+  revokedAt    DateTime?
+
+  adminUser    AdminUser @relation(fields: [adminUserId], references: [id], onDelete: Cascade)
+
+  @@index([adminUserId])
+  @@index([token])
+}
+
+model PasswordResetToken {
+  id           String    @id @default(cuid())
+  tokenHash    String    @unique
+  adminUserId  String
+  expiresAt    DateTime
+  usedAt       DateTime?
+  createdAt    DateTime  @default(now())
+
+  adminUser    AdminUser @relation(fields: [adminUserId], references: [id], onDelete: Cascade)
+
+  @@index([adminUserId])
+}
+
+model MediaAsset {
+  id             String          @id @default(cuid())
+  title          String?
+  altText        String?
+  caption        String?
+  mimeType       String
+  fileSize       Int
+  width          Int?
+  height         Int?
+  url            String
+  storageKey     String
+  storageType    String          @default("local") // "local" | "vercel-blob" | "s3"
+  isArchived     Boolean         @default(false)
+  createdById    String?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  createdBy      AdminUser?      @relation("CreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  assignments    MediaSlot[]     @relation("ActiveAsset")
+  versions       MediaVersion[]
+  galleryItems   GalleryItem[]
+
+  @@index([storageType])
+  @@index([isArchived])
+}
+
+model MediaSlot {
+  id                String          @id @default(cuid())
+  slotKey           String          @unique // e.g. "home.hero.main", "tournaments.indore-open-2026.hero"
+  pageKey           String          // "home" | "tournaments" | "clubs" | "gallery" | "about" | "contact" | "faq" | "leaderboards"
+  displayName       String
+  description       String?
+  aspectRatio       String          @default("16:9")
+  recommendedWidth  Int?
+  recommendedHeight Int?
+  defaultUrl        String
+  activeAssetId     String?
+  lastUpdatedById   String?
+  updatedAt         DateTime        @updatedAt
+
+  activeAsset       MediaAsset?     @relation("ActiveAsset", fields: [activeAssetId], references: [id], onDelete: SetNull)
+  lastUpdatedBy     AdminUser?      @relation("LastUpdatedBy", fields: [lastUpdatedById], references: [id], onDelete: SetNull)
+  versions          MediaVersion[]
+
+  @@index([pageKey])
+}
+
+model MediaVersion {
+  id           String      @id @default(cuid())
+  slotId       String
+  assetId      String
+  action       String      // "UPLOAD" | "CROP" | "REPLACE" | "RESET"
+  note         String?
+  changedById  String?
+  createdAt    DateTime    @default(now())
+
+  slot         MediaSlot   @relation(fields: [slotId], references: [id], onDelete: Cascade)
+  asset        MediaAsset  @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@index([slotId])
+  @@index([assetId])
+}
+
+model GalleryItem {
+  id           String      @id @default(cuid())
+  title        String
+  category     String      @default("COURSE LANDSCAPES")
+  caption      String?
+  altText      String?
+  order        Int         @default(0)
+  isPublished  Boolean     @default(true)
+  assetId      String?
+  fallbackUrl  String?
+  className    String?     @default("gallery-item")
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  asset        MediaAsset? @relation(fields: [assetId], references: [id], onDelete: SetNull)
+
+  @@index([order])
+  @@index([isPublished])
+}
+
+model MediaAuditLog {
+  id           String      @id @default(cuid())
+  action       AuditAction
+  details      String?
+  adminUserId  String?
+  ipAddress    String?
+  userAgent    String?
+  createdAt    DateTime    @default(now())
+
+  adminUser    AdminUser?  @relation(fields: [adminUserId], references: [id], onDelete: SetNull)
+
+  @@index([adminUserId])
+  @@index([action])
+}
+
+model AdminAuditLog {
+  id           String      @id @default(cuid())
+  action       AuditAction
+  details      String?
+  targetEmail  String?
+  adminUserId  String?
+  ipAddress    String?
+  userAgent    String?
+  createdAt    DateTime    @default(now())
+
+  adminUser    AdminUser?  @relation(fields: [adminUserId], references: [id], onDelete: SetNull)
+
+  @@index([adminUserId])
+  @@index([action])
+}
