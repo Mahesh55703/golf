@@ -345,9 +345,33 @@ flowchart TD
       - `LiveLeaderboardView` on `/leaderboards`: Live interactive leaderboard with Gross, Net, and Stableford scoring modes, division switching, and responsive tabular layout.
       - Admin Scoring & Verification Console (`/admin/scoring`): Round selector, registered competitor field selector, 18-hole front/back 9 score matrix with gross entry, to-par and total metrics, progress saving, submission, and Platform Admin verification controls.
       - Added "Scoring & Results" to the admin layout navigation bar.
-11. **Verification:**
-    - `node scripts/test-scoring-engine.js` passed all 5 calculation suites.
-    - Production build (`npm run build`) succeeded with Exit Code 0 across all 45 routes with zero TypeScript errors.
+11. **Phase 3.6 Production Deployment & Scoring QA (October 16, 2026):**
+    - **Deployment & Repository State:**
+      - Commit `c9ea3bb` confirmed clean on `origin/master` at `https://github.com/Mahesh55703/golf.git`.
+      - Working tree verified with zero unversioned risk.
+    - **Database Safety & Migration Version Control:**
+      - Migration history brought into strict formal version control with named additive migration `20261016143000_add_scoring_and_leaderboards`.
+      - Marked as resolved and applied on Neon PostgreSQL via Prisma Migrate.
+      - `npx prisma migrate status` confirmed database schema is completely in sync with 3 sequential, repeatable migrations.
+      - Zero tables dropped or reset; all production admin users, clubs (6), courses (6), tournaments (6), registrations (2), and media slots (34) preserved.
+    - **Scoring Engine Mathematical Audit (`scripts/qa-scoring-audit.js`):**
+      - Validated Gross stroke play sum and to-par difference (-1 for 1 under par).
+      - Validated Net stroke distribution for positive handicaps (HDCP 10 and HDCP 20) against hole stroke indexes.
+      - Validated Plus handicap (+3) giving back strokes on SI 18, 17, and 16.
+      - Validated Stableford boundary conditions (Eagle=4, Birdie=3, Par=2, Bogey=1, Double Bogey=0, Triple Bogey or worse floored at 0).
+      - Validated Incomplete scorecard evaluation (`thruHoles: 1`, `isComplete: false`).
+      - Validated competitive leaderboard tied rankings (T1, T1, 3).
+    - **Authorization & Workflow Integrity Audit:**
+      - Confirmed `POST /api/admin/scoring/scorecard` requires `CONTENT_MANAGER` permission.
+      - Confirmed `POST /api/admin/scoring/verify` requires `PLATFORM_ADMIN` permission.
+      - Validated atomic lifecycle workflow: `IN_PROGRESS` -> `SUBMITTED` -> `VERIFIED` -> `CORRECTION_REQUIRED` -> `UNDER_REVIEW`.
+      - Verified silent modification protection: verified scorecards cannot be silently overwritten without audit trail or unlocking.
+      - Verified audit logging: every verification, score change, submission, and correction is written to `ScorecardAuditLog`.
+      - Validated isolated test tournament, round, registration, and scorecard creation and clean deletion with zero pollution.
+    - **Verification Results:**
+      - `node scripts/qa-scoring-audit.js`: 38/38 assertions PASSED (0 failures).
+      - `npx prisma validate`: Schema valid 🚀.
+      - `npm run build`: Exit Code 0 across all 45 routes.
 
 
 
