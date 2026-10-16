@@ -56,8 +56,9 @@ export async function POST(req: NextRequest) {
       notes,
     } = parsed.data;
 
-    // Concurrency-safe atomic transaction
-    const result = await prisma.$transaction(async (tx) => {
+    // Concurrency-safe atomic transaction with adequate timeout for serverless Neon pooler
+    const result = await prisma.$transaction(
+      async (tx) => {
       // 1. Fetch tournament with divisions and active registrations
       const tournament = await tx.tournament.findFirst({
         where: {
@@ -256,6 +257,9 @@ export async function POST(req: NextRequest) {
       });
 
       return registration;
+    }, {
+      maxWait: 10000,
+      timeout: 20000,
     });
 
     return NextResponse.json({
