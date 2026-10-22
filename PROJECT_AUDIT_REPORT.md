@@ -373,6 +373,32 @@ flowchart TD
       - `npx prisma validate`: Schema valid 🚀.
       - `npm run build`: Exit Code 0 across all 45 routes.
 
+12. **Phase 3.7 & 3.8 Production Launch Readiness & End-to-End Verification (October 22, 2026):**
+    - **Deployment & Git Sync:**
+      - Git remote `origin/master` synchronised with commits `b90a255` (feat: payments, Razorpay gateway, idempotency, reconciliation) and `f02061f` (test: Phase 3.8 automated E2E verification suite).
+      - Local and remote `origin/master` HEADs precisely match at `f02061fdff5fa10f4f5426419e56fc24aa32a2c1`.
+    - **Database Migration Status:**
+      - 4 sequential version-controlled migrations verified in Neon PostgreSQL:
+        1. `20261016122651_init_phase2_admin_and_media`
+        2. `20261016130604_add_core_golf_domain`
+        3. `20261016143000_add_scoring_and_leaderboards`
+        4. `20261022173000_add_payments_and_lifecycle`
+      - `npx prisma migrate status` confirmed database schema is completely up to date with 0 pending migrations and zero data loss.
+    - **Payment Gateway Architecture & Security:**
+      - Razorpay checkout, server-side signature verification (`crypto.timingSafeEqual`), minor unit multi-currency calculation, and webhook signature verification fully verified.
+      - Dual idempotency controls: unique `providerPaymentId` on `Payment` table preventing replay, and unique `eventId` on `PaymentWebhookEvent`.
+      - Strict reservation expiry mechanism (`expireStalePendingRegistrations`) cancelling unpaid checkouts after 30 minutes without affecting confirmed participants.
+      - Admin reconciliation (`/api/admin/registrations/reconcile`) protected by `PLATFORM_ADMIN` RBAC tier with mandatory audit reasons and auditable event tracking.
+    - **Automated Verification Results:**
+      - `node scripts/qa-payments-audit.js`: Passed all unit arithmetic, HMAC verification, uniqueness constraints, and webhook idempotency checks.
+      - `node scripts/qa-scoring-audit.js`: 38/38 assertions PASSED.
+      - `node scripts/test-e2e-verification.js`: 14/14 comprehensive lifecycle integration steps PASSED with zero residual test records.
+      - `npm run build`: Exit Code 0 across all 50 App Router routes.
+    - **Launch Limitations & Recommendations:**
+      - Automated provider-side refund API is intentionally decoupled: refunds transition database records cleanly with references, but physical funds must be settled via the Razorpay merchant dashboard.
+      - LIVE payments require setting production credentials (`RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET`) in Vercel environment variables.
+
+
 
 
 
