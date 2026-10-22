@@ -329,6 +329,18 @@ export async function initiateProviderRefund(input: InitiateRefundInput) {
       throw new Error("NO_SUCCESSFUL_PAYMENT: No captured or partially refunded payment found for this registration.");
     }
 
+    // Check for duplicate refund reference if idempotency key is provided in metadata
+    const metadata = (payment.metadata as any) || {};
+    if (idempotencyKey && metadata.lastRefundIdempotencyKey === idempotencyKey && payment.refundReference) {
+      return {
+        isDuplicate: true,
+        payment,
+        registration,
+        refundReference: payment.refundReference,
+        status: payment.status,
+      };
+    }
+
     const totalCaptured = Number(payment.amount);
     const alreadyRefunded = payment.refundAmount ? Number(payment.refundAmount) : 0;
     const remainingRefundable = Number((totalCaptured - alreadyRefunded).toFixed(2));
@@ -341,18 +353,6 @@ export async function initiateProviderRefund(input: InitiateRefundInput) {
 
     if (requestedAmount > remainingRefundable) {
       throw new Error(`REFUND_EXCEEDS_BALANCE: Requested ${requestedAmount} ${payment.currency} exceeds remaining balance of ${remainingRefundable} ${payment.currency}.`);
-    }
-
-    // Check for duplicate refund reference if idempotency key is provided in metadata
-    const metadata = (payment.metadata as any) || {};
-    if (idempotencyKey && metadata.lastRefundIdempotencyKey === idempotencyKey && payment.refundReference) {
-      return {
-        isDuplicate: true,
-        payment,
-        registration,
-        refundReference: payment.refundReference,
-        status: payment.status,
-      };
     }
 
     return {

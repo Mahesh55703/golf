@@ -419,6 +419,55 @@ flowchart TD
       - **NO-GO for live real-money customer charges until production environment variables (`RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET`) are configured in Vercel and validated in Razorpay Test Mode with test cards.**
       - **GO for staging, tournament testing, and Razorpay Test Mode transactions.**
 
+14. **Phase 4.0 — Production Verification & Operational Readiness Audit (October 22, 2026):**
+    - **Git & Working Tree State:**
+      - Repository `https://github.com/Mahesh55703/golf.git` on branch `master`.
+      - Previous HEAD commit: `8eca4c1` (feat(refunds): implement provider-backed Razorpay refunds, webhook lifecycle, and admin reconciliation).
+    - **Refund Correctness & Defect Remediation:**
+      - **Defect Identified & Remediated in `lib/payments/service.ts`:** In `initiateProviderRefund`, the idempotency check was originally placed after the remaining balance check (`remainingRefundable <= 0` and `requestedAmount > remainingRefundable`). If a payment was already refunded by a previous idempotent request, a retried request with identical `idempotencyKey` failed with `ALREADY_FULLY_REFUNDED` or `REFUND_EXCEEDS_BALANCE` instead of returning the idempotent success payload. Reordered the validation so identical retried idempotency keys are intercepted first and returned idempotently without balance rejection.
+      - Integer minor units confirmed across full/partial refunds and multi-currency conversions (`toMinorUnits`, `fromMinorUnits`).
+      - Atomic transaction concurrency defense verified: simultaneous refund attempts competing for remaining balance are safely intercepted by atomic transaction locks, preventing duplicate or excessive payouts.
+      - Webhook signature validation verified using raw body bytes and HMAC-SHA256 (`crypto.timingSafeEqual`).
+      - Out-of-order webhook delivery defense confirmed: terminal `REFUNDED` states cannot be reversed by stale `refund.created` events.
+    - **Extended Financial Edge-Case QA Suite (`scripts/qa-financial-edge-cases.js`):**
+      - 12/12 edge-case assertions PASSED:
+        1. Direct full refund calculation and status transitions (`REFUNDED`).
+        2. Sequential partial refunds (30.00 USD followed by 40.00 USD) with cumulative balance tracking (70.00 USD refunded, 30.00 USD remaining).
+        3. Attempted refund above remaining balance safely rejected (`REFUND_EXCEEDS_BALANCE`).
+        4. Replay with identical idempotency key intercepted and returned idempotently.
+        5. Simultaneous refund requests racing for remaining balance defended with atomic transaction lock.
+        6. Provider timeout/ambiguity safely caught without modifying internal ledger state.
+        7. Webhook lifecycle: `refund.processed` successfully updates payment records.
+        8. Webhook lifecycle: `refund.failed` cleanly updates metadata audit history.
+        9. Duplicate webhook delivery intercepted durably via unique `eventId` on `PaymentWebhookEvent`.
+        10. Out-of-order webhook delivery preserves terminal `REFUNDED` state.
+        11. Administrative authorization: `PLATFORM_ADMIN` and `SUPER_ADMIN` granted access, `CONTENT_MANAGER` and `VIEWER` strictly denied.
+        12. Financial audit logging persists administrative action (`PAYMENT_REFUNDED`).
+    - **Full Regression Test Matrix Results:**
+      - `npx prisma validate`: Schema valid 🚀.
+      - `npx prisma migrate status`: 4 migrations found, database schema is completely up to date.
+      - `node scripts/qa-scoring-audit.js`: 38/38 assertions PASSED (0 failures).
+      - `node scripts/qa-payments-audit.js`: All arithmetic, HMAC, and DB constraint assertions PASSED.
+      - `node scripts/test-e2e-verification.js`: 14/14 assertions PASSED.
+      - `node scripts/qa-refunds-audit.js`: 10/10 assertions PASSED.
+      - `node scripts/qa-financial-edge-cases.js`: 12/12 assertions PASSED.
+      - `npx next build`: Exit Code 0 across all 50 App Router routes.
+    - **Deployment & Production Environment Status:**
+      - **Vercel Deployment Evidence:** Vercel CLI unauthenticated in workspace. Deployment status cannot be verified directly from terminal. Manual verification via Vercel Dashboard is required.
+      - **Production Secrets Inspection:** Neon PostgreSQL `DATABASE_URL`, `ADMIN_JWT_SECRET`, and `GEMINI_API_KEY` configured in `.env.local`. Razorpay production keys (`RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET`) must be populated in Vercel project environment settings.
+    - **Production Smoke-Test Plan (Razorpay Test Mode):**
+      1. Register golfer for paid tournament.
+      2. Checkout via Razorpay Modal in Test Mode using standard test cards/UPI.
+      3. Verify `Payment` record status `SUCCESS` and `Registration` status `CONFIRMED` / `PAID`.
+      4. Verify `payment.captured` webhook receipt in `PaymentWebhookEvent`.
+      5. Issue partial refund from Admin Registrations modal (`/admin/registrations`).
+      6. Issue full refund for remaining balance.
+      7. Inspect `AdminAuditLog` to confirm `PAYMENT_REFUNDED` entries with audit reasons.
+    - **Release Gate Recommendation:**
+      - **HOLD on live production customer card charges until Vercel deployment is verified and the 7-step Razorpay Test Mode smoke test is executed.**
+      - **READY for staging, test-mode operations, and admin user acceptance testing.**
+
+
 
 
 
