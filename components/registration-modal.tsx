@@ -13,7 +13,8 @@ import {
   Loader2,
   ArrowRight,
   ShieldCheck,
-  Flag,
+  CreditCard,
+  Lock,
 } from "lucide-react";
 
 interface DivisionInfo {
@@ -46,13 +47,19 @@ interface RegistrationModalProps {
   onSuccess?: () => void;
 }
 
+declare global {
+  interface Window {
+    Razorpay?: any;
+  }
+}
+
 export function RegistrationModal({
   isOpen,
   onClose,
   tournament,
   onSuccess,
 }: RegistrationModalProps) {
-  const [step, setStep] = useState<"form" | "confirm" | "success">("form");
+  const [step, setStep] = useState<"form" | "confirm" | "payment" | "success">("form");
   const [formData, setFormData] = useState({
     firstName: "",
     lastName: "",
@@ -68,7 +75,10 @@ export function RegistrationModal({
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
+  const [createdRegistration, setCreatedRegistration] = useState<any>(null);
   const [confirmedRegistration, setConfirmedRegistration] = useState<any>(null);
+  const [paymentData, setPaymentData] = useState<any>(null);
+  const [verifyingPayment, setVerifyingPayment] = useState(false);
 
   if (!isOpen) return null;
 
@@ -109,7 +119,7 @@ export function RegistrationModal({
     }
   };
 
-  const handleFinalSubmit = async () => {
+  const handleCreateRegistration = async () => {
     setSubmitting(true);
     setServerError(null);
 
@@ -141,14 +151,128 @@ export function RegistrationModal({
         return;
       }
 
-      setConfirmedRegistration(json.registration);
-      setStep("success");
-      if (onSuccess) onSuccess();
+      setCreatedRegistration(json.registration);
+
+      // If tournament has an entry fee, initiate payment order
+      if (Number(tournament.entryFee) > 0) {
+        await handleInitiatePayment(json.registration.id);
+      } else {
+        setConfirmedRegistration(json.registration);
+        setStep("success");
+        if (onSuccess) onSuccess();
+      }
     } catch (err: any) {
       setServerError(err.message || "Network error. Please try again.");
       setStep("form");
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const handleInitiatePayment = async (registrationId: string) => {
+    setSubmitting(true);
+    setServerError(null);
+
+    try {
+      const res = await fetch("/api/payments/create-order", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ registrationId }),
+      });
+
+      const orderJson = await res.json();
+      if (!res.ok) {
+        setServerError(orderJson.error || "Failed to initiate payment checkout.");
+        setStep("form");
+        return;
+      }
+
+      setPaymentData(orderJson);
+      setStep("payment");
+    } catch (err: any) {
+      setServerError(err.message || "Failed to connect to payment gateway.");
+      setStep("form");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleExecuteCheckout = async () => {
+    if (!paymentData) return;
+
+    // Check if Razorpay script is loaded and configured
+    if (paymentData.isConfigured && paymentData.keyId) {
+      // Load Razorpay checkout script if not present
+      if (!window.Razorpay) {
+        const script = document.createElement("script");
+        script.src = "https://checkout.razorpay.com/v1/checkout.js";
+        script.async = true;
+        document.body.appendChild(script);
+        await new Promise((resolve) => {
+          script.onload = resolve;
+        });
+      }
+
+      const options = {
+        key: paymentData.keyId,
+        amount: paymentData.amountMinor,
+        currency: paymentData.currency,
+        name: "GolfPulse Tournament Entry",
+        description: `${tournament.name} - Registration Fee`,
+        order_id: paymentData.orderId,
+        prefill: {
+          name: `${formData.firstName} ${formData.lastName}`,
+          email: formData.email,
+          contact: formData.phone,
+        },
+        theme: {
+          color: "#0e2138",
+        },
+        handler: async function (response: any) {
+          await verifyAndFinalize(response.razorpay_order_id, response.razorpay_payment_id, response.razorpay_signature);
+        },
+        modal: {
+          ondismiss: function () {
+            // Keep on payment screen so user can retry or pay later
+          },
+        },
+      };
+
+      const rzp = new window.Razorpay(options);
+      rzp.open();
+    } else {
+      // In development / demo environment without configured live merchant credentials
+      setVerifyingPayment(true);
+      setTimeout(async () => {
+        await verifyAndFinalize(paymentData.orderId, `pay_sim_${Date.now().toString().slice(-6)}`, "DEV_SIMULATED_SIGNATURE");
+      }, 1000);
+    }
+  };
+
+  const verifyAndFinalize = async (orderId: string, paymentId: string, signature: string) => {
+    setVerifyingPayment(true);
+    setServerError(null);
+
+    try {
+      const res = await fetch("/api/payments/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orderId, paymentId, signature }),
+      });
+
+      const json = await res.json();
+      if (!res.ok) {
+        setServerError(json.error || "Payment verification failed.");
+        return;
+      }
+
+      setConfirmedRegistration(json.registration);
+      setStep("success");
+      if (onSuccess) onSuccess();
+    } catch (err: any) {
+      setServerError(err.message || "Failed to verify payment with server.");
+    } finally {
+      setVerifyingPayment(false);
     }
   };
 
@@ -202,7 +326,9 @@ export function RegistrationModal({
                   <span>{tournament.startDate}</span>
                 </div>
                 <div className="font-bold text-[#0e2138] bg-white px-2.5 py-1 rounded-lg border border-slate-200">
-                  ${Number(tournament.entryFee).toFixed(2)} USD
+                  {Number(tournament.entryFee) > 0
+                    ? `${Number(tournament.entryFee).toFixed(2)} ${tournament.currency || "USD"}`
+                    : "Free Entry"}
                 </div>
               </div>
 
@@ -412,11 +538,20 @@ export function RegistrationModal({
                     Tournament Entry Fee
                   </span>
                   <span className="text-[11px] text-slate-500">
-                    Payment status: Unpaid (collect on arrival / invoice)
+                    {Number(tournament.entryFee) > 0
+                      ? "Payable securely via online checkout"
+                      : "Complimentary event entry"}
                   </span>
                 </div>
                 <div className="text-xl font-black text-[#0e2138]">
-                  ${Number(tournament.entryFee).toFixed(2)} <span className="text-xs font-semibold">USD</span>
+                  {Number(tournament.entryFee) > 0 ? (
+                    <>
+                      {Number(tournament.entryFee).toFixed(2)}{" "}
+                      <span className="text-xs font-semibold">{tournament.currency || "USD"}</span>
+                    </>
+                  ) : (
+                    "FREE"
+                  )}
                 </div>
               </div>
 
@@ -430,12 +565,77 @@ export function RegistrationModal({
                 </button>
                 <button
                   type="button"
-                  onClick={handleFinalSubmit}
+                  onClick={handleCreateRegistration}
                   disabled={submitting}
                   className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-[#c29b4e] to-[#dfbf77] text-[#0e2138] font-bold hover:brightness-105 active:scale-95 disabled:opacity-50 transition-all flex items-center gap-2 shadow-md shadow-[#c29b4e]/20"
                 >
                   {submitting && <Loader2 size={14} className="animate-spin text-[#0e2138]" />}
-                  Confirm Registration
+                  {Number(tournament.entryFee) > 0 ? "Proceed to Payment →" : "Confirm Free Entry"}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {step === "payment" && paymentData && (
+            <div className="space-y-5 text-xs text-center py-2">
+              <div className="w-14 h-14 mx-auto rounded-2xl bg-[#faf5eb] text-[#9e7932] border border-[#dfbf77]/40 flex items-center justify-center">
+                <CreditCard size={28} />
+              </div>
+
+              <div>
+                <span className="text-[10px] font-extrabold uppercase tracking-widest text-[#9e7932] block mb-1">
+                  Secure Checkout
+                </span>
+                <h3 className="text-xl font-black text-[#0e2138]">
+                  Complete Entry Fee Payment
+                </h3>
+                <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
+                  Your place is reserved pending payment verification.
+                </p>
+              </div>
+
+              <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 max-w-sm mx-auto text-left space-y-2.5">
+                <div className="flex items-center justify-between pb-2 border-b border-slate-200">
+                  <span className="text-slate-500">Registration Ref</span>
+                  <span className="font-mono font-bold text-slate-900">
+                    {createdRegistration?.referenceNumber}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between pb-2 border-b border-slate-200">
+                  <span className="text-slate-500">Payment Ref</span>
+                  <span className="font-mono font-bold text-slate-900">
+                    {paymentData.paymentReference}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-500 font-bold">Total Payable</span>
+                  <span className="text-base font-black text-[#0e2138]">
+                    {paymentData.amount.toFixed(2)} {paymentData.currency}
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-center gap-1.5 text-[11px] text-slate-500">
+                <Lock size={12} className="text-emerald-600" />
+                <span>256-bit encrypted gateway verification</span>
+              </div>
+
+              <div className="pt-3 border-t border-slate-100 flex items-center justify-center gap-3">
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="px-4 py-2.5 rounded-xl text-slate-600 hover:bg-slate-100 font-bold transition-all"
+                >
+                  Pay Later
+                </button>
+                <button
+                  type="button"
+                  onClick={handleExecuteCheckout}
+                  disabled={verifyingPayment}
+                  className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-[#c29b4e] to-[#dfbf77] text-[#0e2138] font-bold hover:brightness-105 active:scale-95 disabled:opacity-50 transition-all flex items-center gap-2 shadow-md shadow-[#c29b4e]/20"
+                >
+                  {verifyingPayment && <Loader2 size={14} className="animate-spin text-[#0e2138]" />}
+                  {verifyingPayment ? "Verifying..." : `Pay ${paymentData.amount.toFixed(2)} ${paymentData.currency}`}
                 </button>
               </div>
             </div>
@@ -452,10 +652,10 @@ export function RegistrationModal({
                   Registration Confirmed!
                 </span>
                 <h3 className="text-xl font-black text-slate-900">
-                  Welcome to {confirmedRegistration.tournamentName}
+                  Welcome to {confirmedRegistration.tournamentName || tournament.name}
                 </h3>
                 <p className="text-xs text-slate-500 mt-1">
-                  Your registration has been securely recorded in the GolfPulse system.
+                  Your entry is securely confirmed and verified in GolfPulse.
                 </p>
               </div>
 
@@ -475,9 +675,9 @@ export function RegistrationModal({
                   <span className="font-bold text-slate-900">{confirmedRegistration.divisionName}</span>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="text-slate-500">Entry Fee</span>
-                  <span className="font-bold text-[#0e2138]">
-                    ${confirmedRegistration.entryFee.toFixed(2)} USD (Pending)
+                  <span className="text-slate-500">Payment Status</span>
+                  <span className="inline-flex items-center gap-1 font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                    <ShieldCheck size={12} /> {confirmedRegistration.paymentStatus || "PAID"}
                   </span>
                 </div>
               </div>

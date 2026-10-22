@@ -31,6 +31,12 @@ enum AuditAction {
   GALLERY_UPDATE
   GALLERY_REORDER
   GALLERY_DELETE
+  PAYMENT_ORDER_CREATED
+  PAYMENT_VERIFIED
+  PAYMENT_FAILED
+  PAYMENT_REFUNDED
+  PAYMENT_MANUAL_RECONCILE
+  REGISTRATION_CANCELLED
 }
 
 model AdminUser {
@@ -238,6 +244,16 @@ enum PaymentStatus {
   REFUNDED
   WAIVED
   FREE_ENTRY
+}
+
+enum TransactionStatus {
+  CREATED
+  PROCESSING
+  SUCCESS
+  FAILED
+  CANCELLED
+  REFUNDED
+  PARTIALLY_REFUNDED
 }
 
 enum GenderCategory {
@@ -491,12 +507,71 @@ model Registration {
   golfer     GolferProfile @relation(fields: [golferId], references: [id], onDelete: Cascade)
   division   Division?     @relation(fields: [divisionId], references: [id], onDelete: SetNull)
   scorecards Scorecard[]
+  payments   Payment[]
 
   @@unique([tournamentId, golferId, status])
   @@index([tournamentId])
   @@index([golferId])
   @@index([status])
   @@index([paymentStatus])
+}
+
+// ==========================================
+// Phase 3.7: Payments, Entry Fees & Lifecycle
+// ==========================================
+
+model Payment {
+  id              String            @id @default(cuid())
+  referenceNumber String            @unique // e.g. "GP-PAY-2026-X89K2"
+  registrationId  String
+  provider        String            @default("RAZORPAY") // "RAZORPAY" | "MANUAL" | "STRIPE"
+  providerOrderId String?
+  providerPaymentId String?         @unique
+  providerSignature String?
+
+  amount          Decimal           @db.Decimal(10, 2)
+  currency        String            @default("USD")
+  amountMinor     Int               // integer minor units (cents, paise, etc.)
+
+  status          TransactionStatus @default(CREATED)
+  idempotencyKey  String?           @unique
+
+  failureCode     String?
+  failureReason   String?
+
+  paidAt          DateTime?
+  refundedAt      DateTime?
+  refundReference String?
+  refundAmount    Decimal?          @db.Decimal(10, 2)
+
+  metadata        Json?
+
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  registration    Registration      @relation(fields: [registrationId], references: [id], onDelete: Cascade)
+
+  @@index([registrationId])
+  @@index([providerOrderId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model PaymentWebhookEvent {
+  id          String    @id @default(cuid())
+  provider    String    @default("RAZORPAY")
+  eventId     String    @unique // provider event id (e.g. event_xxx)
+  eventType   String    // e.g. "payment.captured", "payment.failed"
+  payload     Json
+  signature   String?
+  processed   Boolean   @default(false)
+  processedAt DateTime?
+  error       String?
+  createdAt   DateTime  @default(now())
+
+  @@index([provider, eventType])
+  @@index([processed])
+  @@index([createdAt])
 }
 
 // ==========================================

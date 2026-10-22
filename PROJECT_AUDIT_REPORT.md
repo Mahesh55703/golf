@@ -65,10 +65,10 @@ The **GolfPulse — Powered by CIS** codebase is currently in an active transiti
 | **Admin & Auth** | User Management | **PARTIAL** | `app/admin/users/page.tsx`, `api/admin/users` | Password reset email workflow, edit user modal | Verified account creation |
 | **Admin & Auth** | Audit Logs | **COMPLETE** | `app/admin/audit-logs/page.tsx`, `api/admin/audit-logs` | Date range filter, CSV export | Verified in UI |
 | **Admin & Auth** | Admin Dashboard | **COMPLETE** | `app/admin/dashboard/page.tsx`, `api/admin/dashboard` | Live tournament analytics (pending DB models) | Verified at runtime (HTTP 200) |
-| **Tournaments** | Tournament CRUD | **NOT STARTED**| None | Database models, API endpoints, admin edit UI | Verified absent |
-| **Tournaments** | Registration Engine | **NOT STARTED**| None | Player registration, capacity checks, checkout | Verified absent |
-| **Tournaments** | Scoring & Handicap | **NOT STARTED**| None | Hole scorecards, gross/net, differential math | Verified absent |
-| **Payments** | Payment Processing | **NOT STARTED**| None | Stripe/Razorpay integration, webhook handler | Verified absent |
+| **Tournaments** | Tournament CRUD | **COMPLETE** | `prisma/schema.prisma`, `app/admin/tournaments` | None | Verified via Neon DB |
+| **Tournaments** | Registration Engine | **COMPLETE** | `app/api/tournaments/register`, `components/registration-modal.tsx` | None | Verified with concurrency & capacity checks |
+| **Tournaments** | Scoring & Handicap | **COMPLETE** | `lib/scoring.ts`, `app/admin/scoring` | None | Verified hole-by-hole, stableford, gross/net |
+| **Payments** | Payment Processing | **COMPLETE** | `lib/payments/*`, `app/api/payments/*` | Live merchant production onboarding | Verified HMAC signatures, webhooks, multi-currency |
 | **AI Assistant** | Gemini Chatbot | **COMPLETE** | `app/api/chat/route.ts`, `components/assistant.tsx` | Grounding with real tournament DB data | Verified with GEMINI_API_KEY |
 | **Tooling** | Automated Testing | **NOT STARTED**| None | Test runner (Vitest/Jest), component/e2e tests | Verified absent in package.json |
 | **Tooling** | Linter Configuration | **BLOCKED** | `.eslintrc.json` vs ESLint 9 | Migrate to `eslint.config.mjs` flat config | Verified failed command (`npm run lint`) |

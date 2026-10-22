@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
 import { TournamentStatus, RegistrationStatus, PaymentStatus } from "@prisma/client";
+import { expireStalePendingRegistrations } from "@/lib/payments/service";
 
 const RegisterSchema = z.object({
   tournamentSlug: z.string().min(1, "Tournament is required"),
@@ -101,6 +102,9 @@ export async function POST(req: NextRequest) {
       if (tournament.registrationOpenAt && now < tournament.registrationOpenAt) {
         throw new Error("REGISTRATION_NOT_YET_OPEN");
       }
+
+      // Concurrency-safe atomic transaction with adequate timeout for serverless Neon pooler
+      await expireStalePendingRegistrations(tournament.id);
 
       // 4. Validate capacity
       const activeCount = tournament._count.registrations;
@@ -218,16 +222,21 @@ export async function POST(req: NextRequest) {
         referenceNumber = `GP-${Date.now().toString().slice(-6)}`;
       }
 
-      // 10. Create Registration record
+      // 10. Determine initial lifecycle status based on tournament entry fee
+      const hasFee = Number(tournament.entryFee) > 0;
+      const initialStatus = hasFee ? RegistrationStatus.PENDING : RegistrationStatus.CONFIRMED;
+      const initialPaymentStatus = hasFee ? PaymentStatus.UNPAID : PaymentStatus.FREE_ENTRY;
+
+      // 11. Create Registration record
       const registration = await tx.registration.create({
         data: {
           referenceNumber,
           tournamentId: tournament.id,
           golferId: golfer.id,
           divisionId: validatedDivisionId,
-          status: RegistrationStatus.CONFIRMED,
-          paymentStatus: PaymentStatus.UNPAID, // Initial unpaid state until payment flow is connected
-          entryFeePaid: tournament.entryFee,
+          status: initialStatus,
+          paymentStatus: initialPaymentStatus,
+          entryFeePaid: hasFee ? 0.0 : tournament.entryFee,
           currency: tournament.currency || "USD",
           handicapSnapshot: handicapIndex !== null && handicapIndex !== undefined ? handicapIndex : null,
           notes: notes ? notes.trim() : null,
@@ -256,27 +265,32 @@ export async function POST(req: NextRequest) {
         },
       });
 
-      return registration;
+      return { registration, hasFee };
     }, {
       maxWait: 10000,
       timeout: 20000,
     });
 
+    const reg = result.registration;
+
     return NextResponse.json({
       success: true,
-      message: "Registration successfully confirmed.",
+      message: result.hasFee
+        ? "Registration initiated. Please proceed to complete checkout."
+        : "Registration successfully confirmed.",
       registration: {
-        referenceNumber: result.referenceNumber,
-        status: result.status,
-        paymentStatus: result.paymentStatus,
-        entryFee: Number(result.entryFeePaid),
-        currency: result.currency,
-        tournamentName: result.tournament.name,
-        hostClub: result.tournament.hostClub?.name || "Host Club",
-        divisionName: result.division?.name || "Open Championship",
-        golferName: `${result.golfer.firstName} ${result.golfer.lastName}`,
-        golferEmail: result.golfer.email,
-        registeredAt: result.registeredAt,
+        id: reg.id,
+        referenceNumber: reg.referenceNumber,
+        status: reg.status,
+        paymentStatus: reg.paymentStatus,
+        entryFee: Number(reg.tournament ? reg.entryFeePaid : 0),
+        currency: reg.currency,
+        tournamentName: reg.tournament.name,
+        hostClub: reg.tournament.hostClub?.name || "Host Club",
+        divisionName: reg.division?.name || "Open Championship",
+        golferName: `${reg.golfer.firstName} ${reg.golfer.lastName}`,
+        golferEmail: reg.golfer.email,
+        registeredAt: reg.registeredAt,
       },
     });
   } catch (error: any) {

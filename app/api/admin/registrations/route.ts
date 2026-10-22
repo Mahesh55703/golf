@@ -80,6 +80,23 @@ export async function GET(req: NextRequest) {
               name: true,
             },
           },
+          payments: {
+            select: {
+              id: true,
+              referenceNumber: true,
+              provider: true,
+              providerOrderId: true,
+              providerPaymentId: true,
+              amount: true,
+              currency: true,
+              status: true,
+              paidAt: true,
+              refundedAt: true,
+              refundReference: true,
+              createdAt: true,
+            },
+            orderBy: { createdAt: "desc" },
+          },
         },
       }),
     ]);
