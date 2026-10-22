@@ -85,11 +85,33 @@ export interface VerifyPaymentParams {
   signature: string;
 }
 
+export interface RefundParams {
+  paymentId: string;
+  amountMinor?: number; // integer minor units
+  notes?: Record<string, string>;
+  receipt?: string;
+  speed?: "normal" | "optimum";
+}
+
+export interface RefundResult {
+  refundId: string;
+  paymentId: string;
+  amountMinor: number;
+  currency: string;
+  status: "processed" | "pending" | "failed";
+  speedProcessed?: string;
+  speedRequested?: string;
+  receipt?: string;
+  createdAt: number;
+  raw?: any;
+}
+
 export interface PaymentGateway {
   name: string;
   createOrder(params: CreateOrderParams): Promise<OrderResult>;
   verifyPaymentSignature(params: VerifyPaymentParams): boolean;
   verifyWebhookSignature(rawBody: string, signature: string): boolean;
+  createRefund(params: RefundParams): Promise<RefundResult>;
 }
 
 /**

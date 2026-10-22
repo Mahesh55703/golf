@@ -4,6 +4,8 @@ import {
   CreateOrderParams,
   OrderResult,
   VerifyPaymentParams,
+  RefundParams,
+  RefundResult,
   toMinorUnits,
   verifyHmacSha256,
 } from "./types";
@@ -83,15 +85,43 @@ export class RazorpayGateway implements PaymentGateway {
     return verifyHmacSha256(rawBody, signature, this.webhookSecret);
   }
 
-  public async createRefund(paymentId: string, amountMinor?: number): Promise<any> {
+  public async createRefund(params: RefundParams): Promise<RefundResult> {
     if (!this.client) {
-      throw new Error("GATEWAY_NOT_CONFIGURED");
+      throw new Error("GATEWAY_NOT_CONFIGURED: Razorpay credentials are missing on the server.");
     }
     const payload: Record<string, any> = {};
-    if (amountMinor) {
-      payload.amount = amountMinor;
+    if (typeof params.amountMinor === "number" && params.amountMinor > 0) {
+      payload.amount = params.amountMinor;
     }
-    return (this.client.payments as any).refund(paymentId, payload);
+    if (params.notes) {
+      payload.notes = params.notes;
+    }
+    if (params.receipt) {
+      payload.receipt = params.receipt;
+    }
+    if (params.speed) {
+      payload.speed = params.speed;
+    }
+
+    try {
+      const res = await (this.client.payments as any).refund(params.paymentId, payload);
+      return {
+        refundId: res.id,
+        paymentId: res.payment_id,
+        amountMinor: res.amount,
+        currency: res.currency,
+        status: res.status === "processed" ? "processed" : "pending",
+        speedProcessed: res.speed_processed,
+        speedRequested: res.speed_requested,
+        receipt: res.receipt,
+        createdAt: res.created_at,
+        raw: res,
+      };
+    } catch (err: any) {
+      console.error("Razorpay refund creation error:", err);
+      const msg = err?.error?.description || err?.message || "Failed to initiate refund with gateway.";
+      throw new Error(`GATEWAY_REFUND_ERROR: ${msg}`);
+    }
   }
 }
 

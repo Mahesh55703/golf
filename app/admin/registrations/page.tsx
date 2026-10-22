@@ -89,6 +89,7 @@ export default function AdminRegistrationsPage() {
   const [reconcileAction, setReconcileAction] = useState<string | null>(null);
   const [reconcileReason, setReconcileReason] = useState("");
   const [reconcileRef, setReconcileRef] = useState("");
+  const [reconcileAmount, setReconcileAmount] = useState<string>("");
   const [reconcileMessage, setReconcileMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
   const fetchRegistrations = async () => {
@@ -134,16 +135,25 @@ export default function AdminRegistrationsPage() {
     setReconciling(true);
     setReconcileMessage(null);
 
+    const payload: any = {
+      registrationId: selectedRecord.id,
+      action: reconcileAction,
+      reason: reconcileReason.trim(),
+      externalReference: reconcileRef.trim() || undefined,
+    };
+
+    if (reconcileAction === "MARK_REFUNDED" && reconcileAmount.trim()) {
+      const parsed = parseFloat(reconcileAmount.trim());
+      if (!isNaN(parsed) && parsed > 0) {
+        payload.amount = parsed;
+      }
+    }
+
     try {
       const res = await fetch("/api/admin/registrations/reconcile", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          registrationId: selectedRecord.id,
-          action: reconcileAction,
-          reason: reconcileReason.trim(),
-          externalReference: reconcileRef.trim() || undefined,
-        }),
+        body: JSON.stringify(payload),
       });
 
       const json = await res.json();
@@ -156,6 +166,7 @@ export default function AdminRegistrationsPage() {
       setReconcileAction(null);
       setReconcileReason("");
       setReconcileRef("");
+      setReconcileAmount("");
       fetchRegistrations();
       setSelectedRecord(null);
     } catch (err: any) {
@@ -569,6 +580,28 @@ export default function AdminRegistrationsPage() {
                     <span className="font-bold text-slate-800 block">
                       Confirm {reconcileAction.replace("_", " ")}
                     </span>
+                    {reconcileAction === "MARK_REFUNDED" && (
+                      <div>
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="text-[10px] text-slate-400">
+                            Refund Amount ({selectedRecord.currency}) - Leave blank for full remaining balance:
+                          </label>
+                          <span className="text-[10px] font-mono text-purple-700 font-bold">
+                            Max: {Number(selectedRecord.entryFeePaid).toFixed(2)} {selectedRecord.currency}
+                          </span>
+                        </div>
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0.01"
+                          max={Number(selectedRecord.entryFeePaid)}
+                          placeholder={`Full refund: ${Number(selectedRecord.entryFeePaid).toFixed(2)} ${selectedRecord.currency}`}
+                          value={reconcileAmount}
+                          onChange={(e) => setReconcileAmount(e.target.value)}
+                          className="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-[#c29b4e]"
+                        />
+                      </div>
+                    )}
                     <input
                       type="text"
                       placeholder="Audit reason (required, min 5 chars)..."

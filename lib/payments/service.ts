@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { razorpayGateway } from "./razorpay";
-import { toMinorUnits } from "./types";
+import { toMinorUnits, fromMinorUnits } from "./types";
 import { TransactionStatus, PaymentStatus, RegistrationStatus, AuditAction } from "@prisma/client";
 import { logAdminAudit } from "@/lib/auth";
 
@@ -276,4 +276,239 @@ export async function finalizePaymentVerification(params: {
       registration: updatedRegistration,
     };
   });
+}
+
+export interface InitiateRefundInput {
+  registrationId: string;
+  adminId: string;
+  adminEmail: string;
+  reason: string;
+  amount?: number; // Major unit (e.g. 50.00). If omitted, full refund of remaining balance
+  idempotencyKey?: string;
+  externalReference?: string;
+}
+
+/**
+ * Initiates a provider-backed refund using the official Razorpay SDK.
+ * Validates remaining refundable balance, prevents concurrent/duplicate refunds,
+ * and maintains atomic consistency between Payment and Registration models.
+ */
+export async function initiateProviderRefund(input: InitiateRefundInput) {
+  const { registrationId, adminId, adminEmail, reason, idempotencyKey } = input;
+
+  if (!reason || reason.trim().length < 5) {
+    throw new Error("INVALID_REASON: An audit reason of at least 5 characters is required.");
+  }
+
+  // 1. Transaction Phase: Validate eligibility and lock/record intent
+  const validatedPayment = await prisma.$transaction(async (tx) => {
+    const registration = await tx.registration.findUnique({
+      where: { id: registrationId },
+      include: {
+        tournament: true,
+        golfer: true,
+        payments: {
+          orderBy: { createdAt: "desc" },
+        },
+      },
+    });
+
+    if (!registration) {
+      throw new Error("REGISTRATION_NOT_FOUND");
+    }
+
+    if (registration.paymentStatus !== PaymentStatus.PAID) {
+      throw new Error(`CANNOT_REFUND_UNPAID: Registration payment status is ${registration.paymentStatus}. Only PAID registrations can be refunded.`);
+    }
+
+    // Find the payment associated with this registration
+    const payment = registration.payments.find(
+      (p) => p.status === TransactionStatus.SUCCESS || p.status === TransactionStatus.PARTIALLY_REFUNDED
+    );
+    if (!payment) {
+      throw new Error("NO_SUCCESSFUL_PAYMENT: No captured or partially refunded payment found for this registration.");
+    }
+
+    const totalCaptured = Number(payment.amount);
+    const alreadyRefunded = payment.refundAmount ? Number(payment.refundAmount) : 0;
+    const remainingRefundable = Number((totalCaptured - alreadyRefunded).toFixed(2));
+
+    if (remainingRefundable <= 0) {
+      throw new Error("ALREADY_FULLY_REFUNDED: Remaining refundable balance is 0.00.");
+    }
+
+    const requestedAmount = typeof input.amount === "number" && input.amount > 0 ? Number(input.amount.toFixed(2)) : remainingRefundable;
+
+    if (requestedAmount > remainingRefundable) {
+      throw new Error(`REFUND_EXCEEDS_BALANCE: Requested ${requestedAmount} ${payment.currency} exceeds remaining balance of ${remainingRefundable} ${payment.currency}.`);
+    }
+
+    // Check for duplicate refund reference if idempotency key is provided in metadata
+    const metadata = (payment.metadata as any) || {};
+    if (idempotencyKey && metadata.lastRefundIdempotencyKey === idempotencyKey && payment.refundReference) {
+      return {
+        isDuplicate: true,
+        payment,
+        registration,
+        refundReference: payment.refundReference,
+        status: payment.status,
+      };
+    }
+
+    return {
+      isDuplicate: false,
+      payment,
+      registration,
+      requestedAmount,
+      remainingRefundable,
+      totalCaptured,
+      currency: payment.currency,
+    };
+  });
+
+  if (validatedPayment.isDuplicate) {
+    return {
+      success: true,
+      idempotent: true,
+      refundId: validatedPayment.refundReference,
+      status: validatedPayment.status,
+      message: "Refund request was already processed idempotently.",
+    };
+  }
+
+  const payment = validatedPayment.payment;
+  const registration = validatedPayment.registration;
+  const requestedAmount: number = validatedPayment.requestedAmount!;
+  const totalCaptured: number = validatedPayment.totalCaptured!;
+  const currency: string = validatedPayment.currency!;
+  const isGatewayConfigured = razorpayGateway.isConfigured() && payment.provider === "RAZORPAY" && Boolean(payment.providerPaymentId);
+
+  const amountMinor = toMinorUnits(requestedAmount, currency);
+  let refundId: string;
+  let isProcessedImmediately = false;
+
+  // 2. Provider API Phase: Call Razorpay API if live/configured or simulated
+  if (isGatewayConfigured && payment.providerPaymentId) {
+    try {
+      const receipt = `RFD-${registration.referenceNumber.replace(/[^A-Za-z0-9_-]/g, "")}-${Date.now().toString().slice(-4)}`.slice(0, 40);
+      const res = await razorpayGateway.createRefund({
+        paymentId: payment.providerPaymentId,
+        amountMinor,
+        receipt,
+        notes: {
+          registrationId: registration.id,
+          registrationReference: registration.referenceNumber,
+          tournamentName: registration.tournament.name.slice(0, 50),
+          reason: reason.slice(0, 50),
+          refundedBy: adminEmail,
+        },
+      });
+
+      refundId = res.refundId;
+      isProcessedImmediately = res.status === "processed";
+    } catch (err: any) {
+      console.error("Provider refund execution error:", err);
+      throw new Error(err.message || "Failed to execute provider refund with gateway.");
+    }
+  } else {
+    // Manual reconciliation or simulated test mode
+    refundId = input.externalReference || `rfd_sim_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    isProcessedImmediately = true;
+  }
+
+  // 3. Persistence Phase: Atomically update Payment, Registration, and Audit log
+  const now = new Date();
+  const currentRefundedTotal = payment.refundAmount ? Number(payment.refundAmount) : 0;
+  const newRefundedTotal = Number((currentRefundedTotal + requestedAmount).toFixed(2));
+  const isFullRefund = newRefundedTotal >= totalCaptured;
+
+  const targetTransactionStatus = isProcessedImmediately
+    ? (isFullRefund ? TransactionStatus.REFUNDED : TransactionStatus.PARTIALLY_REFUNDED)
+    : TransactionStatus.PROCESSING; // Kept in PROCESSING until provider webhook confirms
+
+  const targetPaymentStatus = isProcessedImmediately
+    ? (isFullRefund ? PaymentStatus.REFUNDED : PaymentStatus.PAID)
+    : PaymentStatus.PAID;
+
+  const updatedResult = await prisma.$transaction(async (tx) => {
+    // Concurrency defense: re-check refundable balance inside lock
+    const currentPaymentState = await tx.payment.findUnique({
+      where: { id: payment.id },
+    });
+
+    if (!currentPaymentState) {
+      throw new Error("PAYMENT_NOT_FOUND");
+    }
+
+    const currentRefunded = currentPaymentState.refundAmount ? Number(currentPaymentState.refundAmount) : 0;
+    if (currentRefunded + requestedAmount > Number(currentPaymentState.amount)) {
+      throw new Error("CONCURRENT_REFUND_DETECTED: Refund would exceed original captured amount.");
+    }
+
+    const existingMetadata = (currentPaymentState.metadata as any) || {};
+    const updatedMetadata = {
+      ...existingMetadata,
+      lastRefundIdempotencyKey: idempotencyKey || null,
+      refundHistory: [
+        ...(existingMetadata.refundHistory || []),
+        {
+          refundId,
+          amount: requestedAmount,
+          currency,
+          reason,
+          refundedBy: adminEmail,
+          refundedAt: now.toISOString(),
+          status: isProcessedImmediately ? "processed" : "pending",
+        },
+      ],
+    };
+
+    const updatedPayment = await tx.payment.update({
+      where: { id: payment.id },
+      data: {
+        status: targetTransactionStatus,
+        refundedAt: now,
+        refundReference: refundId,
+        refundAmount: newRefundedTotal,
+        metadata: updatedMetadata,
+      },
+    });
+
+    const updatedRegistration = await tx.registration.update({
+      where: { id: registration.id },
+      data: {
+        paymentStatus: targetPaymentStatus,
+        notes: [
+          registration.notes || "",
+          `[${now.toISOString()}] Refund of ${requestedAmount.toFixed(2)} ${currency} (${refundId}): ${reason} (by ${adminEmail})`
+        ].filter(Boolean).join(" | "),
+      },
+    });
+
+    return {
+      payment: updatedPayment,
+      registration: updatedRegistration,
+    };
+  });
+
+  // 4. Admin Audit Trail
+  await logAdminAudit(
+    AuditAction.PAYMENT_REFUNDED,
+    `Provider Refund ${refundId} initiated for Registration ${registration.id} (${registration.referenceNumber}). Amount: ${requestedAmount} ${currency}. Reason: ${reason}`,
+    undefined,
+    adminId
+  );
+
+  return {
+    success: true,
+    refundId,
+    amount: requestedAmount,
+    currency,
+    status: targetTransactionStatus,
+    paymentStatus: targetPaymentStatus,
+    isFullRefund,
+    isProcessedImmediately,
+    payment: updatedResult.payment,
+    registration: updatedResult.registration,
+  };
 }

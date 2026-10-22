@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { razorpayGateway } from "@/lib/payments/razorpay";
+import { fromMinorUnits } from "@/lib/payments/types";
 import { TransactionStatus, PaymentStatus, RegistrationStatus } from "@prisma/client";
 
 export async function POST(req: NextRequest) {
@@ -100,11 +101,82 @@ export async function POST(req: NextRequest) {
           },
         });
       }
-    } else if (eventType === "refund.processed") {
+    } else if (eventType === "refund.processed" || eventType === "refund.created") {
       const refundEntity = event?.payload?.refund?.entity;
       const paymentId = refundEntity?.payment_id;
       const refundId = refundEntity?.id;
-      const refundAmount = refundEntity?.amount ? refundEntity.amount / 100 : null;
+      const refundAmountMinor = refundEntity?.amount;
+
+      if (paymentId) {
+        await prisma.$transaction(async (tx) => {
+          const payment = await tx.payment.findUnique({
+            where: { providerPaymentId: paymentId },
+            include: { registration: true },
+          });
+
+          if (payment) {
+            const parsedRefundAmount = refundAmountMinor
+              ? fromMinorUnits(refundAmountMinor, payment.currency)
+              : Number(payment.amount);
+
+            const totalCaptured = Number(payment.amount);
+            const currentRefunded = payment.refundAmount ? Number(payment.refundAmount) : 0;
+            
+            // Check if this refund ID was already processed in metadata history to protect against repeated deliveries
+            const meta = (payment.metadata as any) || {};
+            const history = meta.refundHistory || [];
+            const existingEntry = history.find((h: any) => h.refundId === refundId);
+
+            let newRefundedTotal = currentRefunded;
+            if (!existingEntry) {
+              newRefundedTotal = Number((currentRefunded + parsedRefundAmount).toFixed(2));
+            }
+
+            const isFullRefund = newRefundedTotal >= totalCaptured;
+            const updatedTxStatus = isFullRefund ? TransactionStatus.REFUNDED : TransactionStatus.PARTIALLY_REFUNDED;
+            const updatedPaymentStatus = isFullRefund ? PaymentStatus.REFUNDED : PaymentStatus.PAID;
+
+            const updatedHistory = existingEntry
+              ? history.map((h: any) => h.refundId === refundId ? { ...h, status: "processed" } : h)
+              : [
+                  ...history,
+                  {
+                    refundId,
+                    amount: parsedRefundAmount,
+                    currency: payment.currency,
+                    reason: "Processed via gateway webhook",
+                    refundedAt: new Date().toISOString(),
+                    status: "processed",
+                  },
+                ];
+
+            await tx.payment.update({
+              where: { id: payment.id },
+              data: {
+                status: updatedTxStatus,
+                refundedAt: new Date(),
+                refundReference: refundId,
+                refundAmount: newRefundedTotal,
+                metadata: {
+                  ...meta,
+                  refundHistory: updatedHistory,
+                },
+              },
+            });
+
+            await tx.registration.update({
+              where: { id: payment.registrationId },
+              data: {
+                paymentStatus: updatedPaymentStatus,
+              },
+            });
+          }
+        });
+      }
+    } else if (eventType === "refund.failed") {
+      const refundEntity = event?.payload?.refund?.entity;
+      const paymentId = refundEntity?.payment_id;
+      const refundId = refundEntity?.id;
 
       if (paymentId) {
         await prisma.$transaction(async (tx) => {
@@ -113,20 +185,22 @@ export async function POST(req: NextRequest) {
           });
 
           if (payment) {
+            const meta = (payment.metadata as any) || {};
+            const history = (meta.refundHistory || []).map((h: any) =>
+              h.refundId === refundId ? { ...h, status: "failed" } : h
+            );
+
             await tx.payment.update({
               where: { id: payment.id },
               data: {
-                status: TransactionStatus.REFUNDED,
-                refundedAt: new Date(),
-                refundReference: refundId,
-                refundAmount: refundAmount !== null ? refundAmount : payment.amount,
-              },
-            });
-
-            await tx.registration.update({
-              where: { id: payment.registrationId },
-              data: {
-                paymentStatus: PaymentStatus.REFUNDED,
+                metadata: {
+                  ...meta,
+                  refundHistory: history,
+                  lastRefundFailure: {
+                    refundId,
+                    failedAt: new Date().toISOString(),
+                  },
+                },
               },
             });
           }

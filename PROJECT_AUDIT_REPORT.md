@@ -376,7 +376,7 @@ flowchart TD
 12. **Phase 3.7 & 3.8 Production Launch Readiness & End-to-End Verification (October 22, 2026):**
     - **Deployment & Git Sync:**
       - Git remote `origin/master` synchronised with commits `b90a255` (feat: payments, Razorpay gateway, idempotency, reconciliation) and `f02061f` (test: Phase 3.8 automated E2E verification suite).
-      - Local and remote `origin/master` HEADs precisely match at `f02061fdff5fa10f4f5426419e56fc24aa32a2c1`.
+      - Local and remote `origin/master` HEADs precisely match at `dcfd497`.
     - **Database Migration Status:**
       - 4 sequential version-controlled migrations verified in Neon PostgreSQL:
         1. `20261016122651_init_phase2_admin_and_media`
@@ -394,9 +394,30 @@ flowchart TD
       - `node scripts/qa-scoring-audit.js`: 38/38 assertions PASSED.
       - `node scripts/test-e2e-verification.js`: 14/14 comprehensive lifecycle integration steps PASSED with zero residual test records.
       - `npm run build`: Exit Code 0 across all 50 App Router routes.
-    - **Launch Limitations & Recommendations:**
-      - Automated provider-side refund API is intentionally decoupled: refunds transition database records cleanly with references, but physical funds must be settled via the Razorpay merchant dashboard.
-      - LIVE payments require setting production credentials (`RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET`) in Vercel environment variables.
+
+13. **Phase 3.9 Production Deployment and Financial Operations (October 22, 2026):**
+    - **Deployment & Remote Synchronization:**
+      - Repository `https://github.com/Mahesh55703/golf.git` clean on branch `master`.
+      - Vercel CLI unauthenticated in workspace; detailed manual inspection instructions documented.
+      - Production build passes cleanly across all 50 Next.js 16.4.2 App Router routes.
+      - Local runtime health verified (HTTP 200 on `/`, `/admin/login`, `/tournaments`, `/clubs`, `/leaderboards`, and `/api/media`).
+    - **Provider-Backed Refund Workflow Implemented:**
+      - Razorpay Server SDK integrated for direct refunds (`razorpayGateway.createRefund`) with receipt tracking, minor units calculation, and metadata notes.
+      - Full and partial refunds supported with dynamic balance calculation against original captured payments.
+      - Refund requests made strictly idempotent via `idempotencyKey` and `metadata.lastRefundIdempotencyKey`.
+      - Webhook receiver (`/api/payments/webhook`) enhanced to process `refund.processed`, `refund.created`, and `refund.failed` events with duplicate delivery protection.
+      - Concurrency safety: double-checked remaining balance inside atomic Prisma transactions.
+      - Financial permissions: requires `PLATFORM_ADMIN` RBAC tier and mandatory audit reason (minimum 5 characters).
+      - Audit trail: every refund logged to `AdminAuditLog` (`PAYMENT_REFUNDED`).
+      - Admin UI (`/admin/registrations`): refund modal enhanced with optional partial amount input, remaining balance preview, and clear status indicators.
+    - **Automated Refund & Regression Testing (`scripts/qa-refunds-audit.js`):**
+      - 10/10 test assertions PASSED (invalid reference, unpaid registration, balance overage, provider failure handling, partial refund, idempotency replay, concurrent overage defense, full refund completion, webhook HMAC verification, admin audit log persistence).
+      - 14/14 Phase 3.8 E2E verification assertions PASSED (`scripts/test-e2e-verification.js`).
+      - 38/38 Phase 3.6 Scoring engine QA assertions PASSED (`scripts/qa-scoring-audit.js`).
+      - Schema validation: `npx prisma validate` valid 🚀.
+    - **GO / NO-GO Recommendation:**
+      - **NO-GO for live real-money customer charges until production environment variables (`RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET`) are configured in Vercel and validated in Razorpay Test Mode with test cards.**
+      - **GO for staging, tournament testing, and Razorpay Test Mode transactions.**
 
 
 

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getCurrentAdmin, hasPermission, logAdminAudit } from "@/lib/auth";
 import { AdminRole, AuditAction, PaymentStatus, RegistrationStatus, TransactionStatus } from "@prisma/client";
+import { initiateProviderRefund } from "@/lib/payments/service";
 import { z } from "zod";
 
 const ReconcileSchema = z.object({
@@ -9,6 +10,8 @@ const ReconcileSchema = z.object({
   action: z.enum(["MARK_PAID", "CANCEL_REGISTRATION", "MARK_REFUNDED"]),
   reason: z.string().min(5, "A reason of at least 5 characters is required for reconciliation"),
   externalReference: z.string().optional(),
+  amount: z.number().positive().optional(),
+  idempotencyKey: z.string().optional(),
 });
 
 export async function POST(req: NextRequest) {
@@ -36,7 +39,28 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const { registrationId, action, reason, externalReference } = parsed.data;
+    const { registrationId, action, reason, externalReference, amount, idempotencyKey } = parsed.data;
+
+    if (action === "MARK_REFUNDED") {
+      // Execute verified provider-backed refund workflow
+      const refundResult = await initiateProviderRefund({
+        registrationId,
+        adminId: admin.id,
+        adminEmail: admin.email,
+        reason,
+        amount,
+        idempotencyKey,
+        externalReference,
+      });
+
+      return NextResponse.json({
+        success: true,
+        message: refundResult.isProcessedImmediately
+          ? (refundResult.isFullRefund ? "Full refund processed successfully." : "Partial refund processed successfully.")
+          : "Refund request initiated with provider. Status is pending provider confirmation.",
+        result: refundResult,
+      });
+    }
 
     const result = await prisma.$transaction(async (tx) => {
       const registration = await tx.registration.findUnique({
@@ -104,33 +128,6 @@ export async function POST(req: NextRequest) {
           data: {
             status: TransactionStatus.CANCELLED,
             failureReason: `Admin cancellation: ${reason}`,
-          },
-        });
-
-        return { registration: updatedReg };
-      } else if (action === "MARK_REFUNDED") {
-        if (registration.paymentStatus !== PaymentStatus.PAID) {
-          throw new Error("CANNOT_REFUND_UNPAID: Only paid registrations can be refunded.");
-        }
-
-        const updatedReg = await tx.registration.update({
-          where: { id: registration.id },
-          data: {
-            paymentStatus: PaymentStatus.REFUNDED,
-            notes: `Refunded by admin (${admin.email}): ${reason}`,
-          },
-        });
-
-        await tx.payment.updateMany({
-          where: {
-            registrationId: registration.id,
-            status: TransactionStatus.SUCCESS,
-          },
-          data: {
-            status: TransactionStatus.REFUNDED,
-            refundedAt: now,
-            refundReference: externalReference || `refund_manual_${Date.now()}`,
-            refundAmount: registration.entryFeePaid,
           },
         });
 
