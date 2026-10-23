@@ -79,6 +79,29 @@ export function RegistrationModal({
   const [confirmedRegistration, setConfirmedRegistration] = useState<any>(null);
   const [paymentData, setPaymentData] = useState<any>(null);
   const [verifyingPayment, setVerifyingPayment] = useState(false);
+  const [activationRequested, setActivationRequested] = useState(false);
+  const [requestingActivation, setRequestingActivation] = useState(false);
+  const [activationMessage, setActivationMessage] = useState<string | null>(null);
+
+  const handleRequestActivation = async () => {
+    if (!confirmedRegistration?.golferEmail) return;
+    setRequestingActivation(true);
+    setActivationMessage(null);
+    try {
+      const res = await fetch("/api/golfer/auth/activate/request", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: confirmedRegistration.golferEmail }),
+      });
+      const data = await res.json();
+      setActivationRequested(true);
+      setActivationMessage(data.message || "Activation link sent! Check your email inbox.");
+    } catch {
+      setActivationMessage("Failed to send activation email. You can activate anytime via Player Portal.");
+    } finally {
+      setRequestingActivation(false);
+    }
+  };
 
   if (!isOpen) return null;
 
@@ -713,6 +736,45 @@ export function RegistrationModal({
                     )}
                   </div>
                 </div>
+              </div>
+
+              {/* Optional Account Activation CTA */}
+              <div className="p-4 rounded-2xl bg-[#0e2138]/5 border border-[#c29b4e]/30 max-w-sm mx-auto text-left text-xs space-y-2">
+                <div className="flex items-start gap-2">
+                  <div className="p-1 rounded-md bg-[#c29b4e]/20 text-[#c29b4e] mt-0.5">
+                    <Trophy size={14} />
+                  </div>
+                  <div>
+                    <h4 className="font-bold text-slate-900">Track your tournament & performance</h4>
+                    <p className="text-[11px] text-slate-500 mt-0.5">
+                      Create your GolfPulse account to view all registrations, scorecards, and live leaderboards.
+                    </p>
+                  </div>
+                </div>
+
+                {activationMessage && (
+                  <p className="text-[11px] font-medium text-emerald-700 bg-emerald-50 p-2 rounded-lg border border-emerald-200">
+                    {activationMessage}
+                  </p>
+                )}
+
+                {!activationRequested && (
+                  <button
+                    type="button"
+                    onClick={handleRequestActivation}
+                    disabled={requestingActivation}
+                    className="w-full mt-2 py-2 px-3 rounded-xl bg-gradient-to-r from-[#c29b4e] to-[#dfbf77] text-[#0e2138] font-bold text-xs flex items-center justify-center gap-1.5 hover:brightness-105 active:scale-95 transition-all disabled:opacity-50"
+                  >
+                    {requestingActivation ? (
+                      <Loader2 size={13} className="animate-spin" />
+                    ) : (
+                      <>
+                        <span>Activate GolfPulse Account</span>
+                        <ArrowRight size={13} />
+                      </>
+                    )}
+                  </button>
+                )}
               </div>
 
               <div className="pt-4 border-t border-slate-100 flex items-center justify-center gap-3">

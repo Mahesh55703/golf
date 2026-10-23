@@ -472,15 +472,99 @@ model GolferProfile {
   handicapIndex     Decimal?       @db.Decimal(4, 1) // e.g. 8.4
   handicapNetworkId String? // GHIN / WHS / National Golf ID
   handicapStatus    HandicapStatus @default(UNVERIFIED)
+
+  // Golfer Authentication & Activation
+  passwordHash      String?
+  isEmailVerified   Boolean        @default(false)
+  emailVerifiedAt   DateTime?
+  avatarUrl         String?
+
   createdAt         DateTime       @default(now())
   updatedAt         DateTime       @updatedAt
 
-  registrations Registration[]
-  scorecards    Scorecard[]
-  results       CompetitionResult[]
+  registrations     Registration[]
+  scorecards        Scorecard[]
+  results           CompetitionResult[]
+  sessions          GolferSession[]
+  activationTokens  GolferActivationToken[]
+  passwordResets    GolferPasswordResetToken[]
+  notifications     GolferNotification[]
 
   @@index([email])
   @@index([handicapIndex])
+  @@index([isEmailVerified])
+}
+
+model GolferSession {
+  id        String    @id @default(cuid())
+  token     String    @unique
+  golferId  String
+  expiresAt DateTime
+  createdAt DateTime  @default(now())
+  revokedAt DateTime?
+
+  golfer GolferProfile @relation(fields: [golferId], references: [id], onDelete: Cascade)
+
+  @@index([golferId])
+  @@index([token])
+}
+
+model GolferActivationToken {
+  id        String    @id @default(cuid())
+  tokenHash String    @unique
+  golferId  String
+  email     String
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  golfer GolferProfile @relation(fields: [golferId], references: [id], onDelete: Cascade)
+
+  @@index([golferId])
+  @@index([tokenHash])
+}
+
+model GolferPasswordResetToken {
+  id        String    @id @default(cuid())
+  tokenHash String    @unique
+  golferId  String
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  golfer GolferProfile @relation(fields: [golferId], references: [id], onDelete: Cascade)
+
+  @@index([golferId])
+  @@index([tokenHash])
+}
+
+enum NotificationType {
+  REGISTRATION_CONFIRMED
+  PAYMENT_RECEIVED
+  TOURNAMENT_UPCOMING
+  TEE_TIME_PUBLISHED
+  SCORECARD_VERIFIED
+  RESULTS_PUBLISHED
+  GENERAL
+}
+
+model GolferNotification {
+  id        String           @id @default(cuid())
+  golferId  String
+  title     String
+  message   String           @db.Text
+  type      NotificationType @default(GENERAL)
+  linkUrl   String?
+  isRead    Boolean          @default(false)
+  readAt    DateTime?
+  metadata  Json?
+  createdAt DateTime         @default(now())
+
+  golfer GolferProfile @relation(fields: [golferId], references: [id], onDelete: Cascade)
+
+  @@index([golferId])
+  @@index([isRead])
+  @@index([createdAt])
 }
 
 model Registration {
