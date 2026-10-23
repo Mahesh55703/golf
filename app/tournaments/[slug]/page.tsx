@@ -7,6 +7,7 @@ import { CourseVideo } from "@/components/course-video";
 import { getMediaUrl } from "@/lib/media";
 import { prisma } from "@/lib/prisma";
 import { TournamentRegistrationButton } from "@/components/tournament-registration-button";
+import { deriveTournamentLifecycle } from "@/lib/tournament-lifecycle";
 
 export const dynamic = "force-dynamic";
 
@@ -69,6 +70,11 @@ export default async function TournamentDetailPage({ params }: { params: Promise
     });
 
     if (dbT) {
+      // Unpublished draft tournaments must not be discovered on public URLs
+      if (dbT.status === "DRAFT") {
+        notFound();
+      }
+
       rawTournamentStatus = dbT.status;
       maxHandicapLimit = dbT.maxHandicapLimit ? Number(dbT.maxHandicapLimit) : null;
       divisionsList = dbT.divisions.map((d) => ({
@@ -79,18 +85,18 @@ export default async function TournamentDetailPage({ params }: { params: Promise
       }));
 
       const regCount = dbT.registrations.length;
-      const spotsLeft = Math.max(0, dbT.fieldCapacity - regCount);
 
-      const statusMap: Record<string, "Registration open" | "Coming soon"> = {
-        REGISTRATION_OPEN: "Registration open",
-        PUBLISHED: "Coming soon",
-        DRAFT: "Coming soon",
-        REGISTRATION_CLOSED: "Coming soon",
-        IN_PROGRESS: "Coming soon",
-        SCORING_REVIEW: "Coming soon",
-        FINALIZED: "Coming soon",
-        CANCELLED: "Coming soon",
-      };
+      const lifecycle = deriveTournamentLifecycle({
+        status: dbT.status,
+        startDate: dbT.startDate,
+        endDate: dbT.endDate,
+        registrationOpenAt: dbT.registrationOpenAt,
+        registrationCloseAt: dbT.registrationCloseAt,
+        fieldCapacity: dbT.fieldCapacity,
+        registrationsCount: regCount,
+        timeZone: dbT.timeZone,
+        publishedAt: dbT.publishedAt,
+      });
 
       const formatMap: Record<string, "Stroke Play" | "Stableford" | "Match Play" | "Scramble"> = {
         STROKE_PLAY: "Stroke Play",
@@ -120,10 +126,17 @@ export default async function TournamentDetailPage({ params }: { params: Promise
         endDate: dbT.endDate.toISOString().split("T")[0],
         entryFee: Number(dbT.entryFee) || 0,
         currency: "USD",
-        status: statusMap[dbT.status] || "Registration open",
+        status: lifecycle.displayStatus,
+        rawStatus: dbT.status,
+        badgeLabel: lifecycle.badgeLabel,
+        badgeStyle: lifecycle.badgeStyle,
+        detailStatusLabel: lifecycle.detailStatusLabel,
+        detailStatusDescription: lifecycle.detailStatusDescription,
+        ctaLabel: lifecycle.ctaLabel,
+        canRegister: lifecycle.canRegister,
         format: formatMap[dbT.format] || "Stroke Play",
         fieldSize: dbT.fieldCapacity,
-        spotsLeft: spotsLeft,
+        spotsLeft: lifecycle.spotsLeft,
         access: accessMap[dbT.access] || "Public",
         handicapRequired: dbT.handicapRequired,
         image: dbT.heroImageUrl || defaultImage,
@@ -219,7 +232,7 @@ export default async function TournamentDetailPage({ params }: { params: Promise
               <article>
                 <CalendarDays />
                 <span>STATUS</span>
-                <strong>{t.status}</strong>
+                <strong>{t.detailStatusLabel || t.status}</strong>
                 <small>Official GolfPulse event</small>
               </article>
             </div>
@@ -243,9 +256,10 @@ export default async function TournamentDetailPage({ params }: { params: Promise
               {formatFee(t.entryFee)} <small>/ player</small>
             </div>
             <p>
-              {t.status === "Registration open"
-                ? "Registration is currently open for this event."
-                : `Tournament status: ${t.status}.`}
+              {t.detailStatusDescription ||
+                (t.status === "Registration open"
+                  ? "Registration is currently open for this event."
+                  : `Tournament status: ${t.status}.`)}
             </p>
 
             <TournamentRegistrationButton
@@ -264,6 +278,8 @@ export default async function TournamentDetailPage({ params }: { params: Promise
                 maxHandicapLimit: maxHandicapLimit,
                 spotsLeft: t.spotsLeft,
                 status: t.status,
+                canRegister: t.canRegister,
+                ctaLabel: t.ctaLabel,
                 divisions: divisionsList,
               }}
             />

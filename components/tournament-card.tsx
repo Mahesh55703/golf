@@ -3,12 +3,15 @@ import { CalendarDays, MapPin, ArrowUpRight, Users, LockKeyhole, Trophy } from "
 import { formatDateRange, formatFee, type Tournament } from "@/lib/data";
 
 export function TournamentCard({ tournament, compact = false }: { tournament: Tournament; compact?: boolean }) {
+  const badgeClass = tournament.badgeStyle || (tournament.status === "Registration open" ? "status-open" : "status-soon");
+  const badgeText = tournament.badgeLabel || tournament.status;
+
   return (
     <article className={`tournament-card ${compact ? "tournament-card-compact" : ""}`}>
       <Link href={`/tournaments/${tournament.id}`} className="card-image-link" aria-label={`View ${tournament.name}`}>
         <div className="card-image" style={{ backgroundImage: `url("${tournament.image}")` }}>
-          <span className={`status-pill ${tournament.status === "Registration open" ? "status-open" : "status-soon"}`}>
-            {tournament.status}
+          <span className={`status-pill ${badgeClass}`}>
+            {badgeText}
           </span>
           {tournament.featured && <span className="featured-pill"><Trophy size={11} /> FEATURED CHAMPIONSHIP</span>}
         </div>

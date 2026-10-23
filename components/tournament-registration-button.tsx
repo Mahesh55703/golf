@@ -20,6 +20,8 @@ interface TournamentRegistrationButtonProps {
     maxHandicapLimit?: number | null;
     spotsLeft: number;
     status: string;
+    canRegister?: boolean;
+    ctaLabel?: string;
     divisions: Array<{
       id: string;
       name: string;
@@ -32,12 +34,36 @@ interface TournamentRegistrationButtonProps {
 
 export function TournamentRegistrationButton({ tournament }: TournamentRegistrationButtonProps) {
   const [modalOpen, setModalOpen] = useState(false);
-  const isRegistrationOpen = tournament.status === "Registration open" && tournament.spotsLeft > 0;
+
+  // Authoritative registration eligibility check
+  const isRegistrationOpen =
+    tournament.canRegister !== undefined
+      ? Boolean(tournament.canRegister) && tournament.spotsLeft > 0
+      : tournament.status === "Registration open" && tournament.spotsLeft > 0;
+
+  // Authoritative CTA text resolution
+  const getCtaText = () => {
+    if (tournament.ctaLabel) return tournament.ctaLabel;
+    if (tournament.status === "Registration open") {
+      return tournament.spotsLeft > 0 ? "Register for tournament" : "Tournament at capacity";
+    }
+    if (tournament.status === "In progress") return "Tournament in progress";
+    if (tournament.status === "Registration closed") return "Registration closed";
+    if (tournament.status === "Completed") return "Tournament completed";
+    if (tournament.status === "Cancelled") return "Tournament cancelled";
+    if (tournament.status === "Full") return "Tournament at capacity";
+    if (tournament.status === "Coming soon" || tournament.status === "Opens soon") {
+      return "Notify me when open";
+    }
+    return "Registration closed";
+  };
 
   return (
     <>
       <button
-        onClick={() => setModalOpen(true)}
+        onClick={() => {
+          if (isRegistrationOpen) setModalOpen(true);
+        }}
         disabled={!isRegistrationOpen}
         className={`button ${
           isRegistrationOpen
@@ -45,12 +71,7 @@ export function TournamentRegistrationButton({ tournament }: TournamentRegistrat
             : "button-dark opacity-60 cursor-not-allowed"
         }`}
       >
-        {tournament.status === "Registration open"
-          ? tournament.spotsLeft > 0
-            ? "Register for tournament"
-            : "Tournament at capacity"
-          : "Notify me when open"}{" "}
-        <ArrowUpRight size={16} />
+        {getCtaText()} <ArrowUpRight size={16} />
       </button>
 
       {modalOpen && (

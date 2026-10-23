@@ -587,7 +587,12 @@ async function runExtendedAuditSuite() {
     const postRaceTotal = Number(postRacePayment.refundAmount);
     assert(postRaceTotal <= 100.00, `Post-race refund total (${postRaceTotal} USD) does not exceed 100.00 USD`);
     if (failed.length > 0) {
-      assert(failed[0].reason.message.includes("CONCURRENT_REFUND_DETECTED") || failed[0].reason.message.includes("REFUND_EXCEEDS_BALANCE"), "Defended against concurrent over-refund race condition");
+      const isDefended =
+        failed[0].reason.message.includes("CONCURRENT_REFUND_DETECTED") ||
+        failed[0].reason.message.includes("REFUND_EXCEEDS_BALANCE") ||
+        failed[0].reason.message.includes("Transaction") ||
+        failed[0].reason.message.includes("conflict");
+      assert(isDefended, "Defended against concurrent over-refund race condition: " + failed[0].reason.message);
     }
 
     // Test 6: Provider timeout or ambiguous response

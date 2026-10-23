@@ -67,6 +67,10 @@ export async function GET(req: NextRequest) {
           refundedAt: p.refundedAt,
           providerOrderId: p.providerOrderId,
           providerPaymentId: p.providerPaymentId,
+          isSimulation: Boolean(
+            p.providerOrderId?.startsWith("order_sim_") ||
+            p.providerPaymentId?.startsWith("pay_sim_")
+          ),
         })),
       },
     });

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { getCurrentAdmin, hasPermission } from "@/lib/auth";
 import { TournamentFormat, TournamentAccess, TournamentStatus } from "@prisma/client";
@@ -170,6 +171,17 @@ export async function PUT(
       data: updateData,
     });
 
+    try {
+      revalidatePath("/tournaments");
+      revalidatePath(`/tournaments/${updated.slug}`);
+      if (existing.slug !== updated.slug) {
+        revalidatePath(`/tournaments/${existing.slug}`);
+      }
+      revalidatePath("/");
+    } catch (revalErr) {
+      console.warn("Path revalidation warning:", revalErr);
+    }
+
     return NextResponse.json({ tournament: updated });
   } catch (err: any) {
     console.error("PUT /api/admin/tournaments/[id] error:", err);
@@ -210,6 +222,13 @@ export async function DELETE(
         where: { id },
         data: { status: TournamentStatus.CANCELLED },
       });
+      try {
+        revalidatePath("/tournaments");
+        revalidatePath(`/tournaments/${tournament.slug}`);
+        revalidatePath("/");
+      } catch (revalErr) {
+        console.warn("Path revalidation warning:", revalErr);
+      }
       return NextResponse.json({
         message: "Tournament has existing history or registrations. Successfully transitioned to CANCELLED.",
         tournament: cancelled,

@@ -38,6 +38,10 @@ export async function POST(req: NextRequest) {
         amount: Number(result.payment.amount),
         currency: result.payment.currency,
         paidAt: result.payment.paidAt,
+        isSimulation: Boolean(
+          result.payment.providerOrderId?.startsWith("order_sim_") ||
+          result.payment.providerPaymentId?.startsWith("pay_sim_")
+        ),
       },
     });
   } catch (error: any) {

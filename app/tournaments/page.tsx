@@ -4,6 +4,7 @@ import { TournamentBrowser } from "@/components/tournament-browser";
 import { CourseVideo } from "@/components/course-video";
 import { prisma } from "@/lib/prisma";
 import { tournaments as mockTournaments, type Tournament } from "@/lib/data";
+import { deriveTournamentLifecycle } from "@/lib/tournament-lifecycle";
 
 export const dynamic = "force-dynamic";
 
@@ -24,16 +25,21 @@ function formatPrismaToUITournament(dbT: any): Tournament {
     MEMBERS_ONLY: "Members only",
     INVITATIONAL: "Members only",
   };
-  const statusMap: Record<string, any> = {
-    REGISTRATION_OPEN: "Registration open",
-    PUBLISHED: "Coming soon",
-    DRAFT: "Coming soon",
-  };
+
+  const lifecycle = deriveTournamentLifecycle({
+    status: dbT.status,
+    startDate: dbT.startDate,
+    endDate: dbT.endDate,
+    registrationOpenAt: dbT.registrationOpenAt,
+    registrationCloseAt: dbT.registrationCloseAt,
+    fieldCapacity: dbT.fieldCapacity,
+    registrationsCount: dbT._count?.registrations ?? 0,
+    timeZone: dbT.timeZone,
+    publishedAt: dbT.publishedAt,
+  });
 
   const location = [dbT.hostClub?.city, dbT.hostClub?.state].filter(Boolean).join(", ") || dbT.hostClub?.country || "Metropolitan District";
   const region = dbT.hostClub?.country === "India" ? "India" : "International";
-  const registrationsCount = dbT._count?.registrations ?? 0;
-  const spotsLeft = Math.max(0, dbT.fieldCapacity - registrationsCount);
 
   return {
     id: dbT.slug,
@@ -47,11 +53,18 @@ function formatPrismaToUITournament(dbT: any): Tournament {
     access: accessMap[dbT.access] || "Public",
     entryFee: Number(dbT.entryFee) || 0,
     currency: "USD",
-    spotsLeft,
+    spotsLeft: lifecycle.spotsLeft,
     fieldSize: dbT.fieldCapacity,
     image: dbT.heroImageUrl || "https://images.unsplash.com/photo-1592919505780-303950717480?auto=format&fit=crop&w=1200&q=85",
     featured: dbT.featured,
-    status: statusMap[dbT.status] || "Registration open",
+    status: lifecycle.displayStatus,
+    rawStatus: dbT.status,
+    badgeLabel: lifecycle.badgeLabel,
+    badgeStyle: lifecycle.badgeStyle,
+    detailStatusLabel: lifecycle.detailStatusLabel,
+    detailStatusDescription: lifecycle.detailStatusDescription,
+    ctaLabel: lifecycle.ctaLabel,
+    canRegister: lifecycle.canRegister,
     handicapRequired: dbT.handicapRequired,
   };
 }
@@ -62,11 +75,19 @@ export default async function TournamentsPage() {
   try {
     const dbTournaments = await prisma.tournament.findMany({
       where: {
-        status: { in: ["PUBLISHED", "REGISTRATION_OPEN", "REGISTRATION_CLOSED", "IN_PROGRESS"] },
+        status: { not: "DRAFT" },
       },
       include: {
         hostClub: true,
-        _count: { select: { registrations: true } },
+        _count: {
+          select: {
+            registrations: {
+              where: {
+                status: { in: ["CONFIRMED", "PENDING"] },
+              },
+            },
+          },
+        },
       },
       orderBy: { startDate: "asc" },
     });

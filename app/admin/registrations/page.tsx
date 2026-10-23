@@ -515,7 +515,14 @@ export default function AdminRegistrationsPage() {
                     {selectedRecord.payments.map((p) => (
                       <div key={p.id} className="p-2.5 rounded-lg bg-white border border-slate-200 text-[11px] space-y-1">
                         <div className="flex items-center justify-between">
-                          <span className="font-mono font-bold text-slate-900">{p.referenceNumber}</span>
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono font-bold text-slate-900">{p.referenceNumber}</span>
+                            {(p.providerOrderId?.startsWith("order_sim_") || p.providerPaymentId?.startsWith("pay_sim_")) && (
+                              <span className="px-1.5 py-0.2 rounded text-[8px] font-extrabold uppercase tracking-wider bg-amber-100 text-amber-800 border border-amber-300">
+                                Simulated / Test
+                              </span>
+                            )}
+                          </div>
                           <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold uppercase ${
                             p.status === "SUCCESS"
                               ? "bg-emerald-50 text-emerald-700 border border-emerald-200"

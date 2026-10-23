@@ -12,5 +12,7 @@ public/uploads/*
 GolfPulse Tournament Branding Banner.png
 .DS_Store
 Thumbs.db
+*.tsbuildinfo
+
 
 

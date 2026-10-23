@@ -794,7 +794,109 @@ h1, h2, h3, .pga-serif {
 }
 
 .status-open:before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
   background: var(--gold);
+  display: inline-block;
+  margin-right: 4px;
+}
+
+.status-inprogress {
+  background: #2e1065;
+  color: #f3e8ff;
+  border: 1px solid #c084fc;
+}
+
+.status-inprogress:before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #c084fc;
+  display: inline-block;
+  margin-right: 4px;
+}
+
+.status-closed {
+  background: #451a03;
+  color: #fef3c7;
+  border: 1px solid #f59e0b;
+}
+
+.status-closed:before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #f59e0b;
+  display: inline-block;
+  margin-right: 4px;
+}
+
+.status-full {
+  background: #4c0519;
+  color: #ffe4e6;
+  border: 1px solid #f43f5e;
+}
+
+.status-full:before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #f43f5e;
+  display: inline-block;
+  margin-right: 4px;
+}
+
+.status-completed {
+  background: #0f172a;
+  color: #e2e8f0;
+  border: 1px solid #64748b;
+}
+
+.status-completed:before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #94a3b8;
+  display: inline-block;
+  margin-right: 4px;
+}
+
+.status-cancelled {
+  background: #450a0a;
+  color: #fee2e2;
+  border: 1px solid #ef4444;
+}
+
+.status-cancelled:before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #ef4444;
+  display: inline-block;
+  margin-right: 4px;
+}
+
+.status-review {
+  background: #1e1b4b;
+  color: #e0e7ff;
+  border: 1px solid #818cf8;
+}
+
+.status-review:before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #818cf8;
+  display: inline-block;
+  margin-right: 4px;
 }
 
 .featured-pill {

@@ -636,11 +636,35 @@ export default function AdminTournamentsPage() {
                           </button>
                         )}
                         {t.status === "REGISTRATION_CLOSED" && (
+                          <>
+                            <button
+                              onClick={() => handleLifecycleTransition(t.id, "REGISTRATION_OPEN")}
+                              className="px-2 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-lg text-[10px] font-bold border border-emerald-200 transition-all"
+                            >
+                              Open Reg
+                            </button>
+                            <button
+                              onClick={() => handleLifecycleTransition(t.id, "IN_PROGRESS")}
+                              className="px-2 py-1 bg-purple-50 hover:bg-purple-100 text-purple-700 rounded-lg text-[10px] font-bold border border-purple-200 transition-all"
+                            >
+                              Start Play
+                            </button>
+                          </>
+                        )}
+                        {t.status === "IN_PROGRESS" && (
                           <button
-                            onClick={() => handleLifecycleTransition(t.id, "IN_PROGRESS")}
-                            className="px-2 py-1 bg-purple-50 hover:bg-purple-100 text-purple-700 rounded-lg text-[10px] font-bold border border-purple-200 transition-all"
+                            onClick={() => handleLifecycleTransition(t.id, "SCORING_REVIEW")}
+                            className="px-2 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg text-[10px] font-bold border border-indigo-200 transition-all"
                           >
-                            Start Play
+                            Review Scores
+                          </button>
+                        )}
+                        {t.status === "SCORING_REVIEW" && (
+                          <button
+                            onClick={() => handleLifecycleTransition(t.id, "FINALIZED")}
+                            className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-[10px] font-bold border border-slate-300 transition-all"
+                          >
+                            Finalize
                           </button>
                         )}
 

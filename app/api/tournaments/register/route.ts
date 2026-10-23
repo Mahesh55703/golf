@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { z } from "zod";
 import { TournamentStatus, RegistrationStatus, PaymentStatus } from "@prisma/client";
 import { expireStalePendingRegistrations } from "@/lib/payments/service";
+import { deriveTournamentLifecycle } from "@/lib/tournament-lifecycle";
 
 const RegisterSchema = z.object({
   tournamentSlug: z.string().min(1, "Tournament is required"),
@@ -84,32 +85,23 @@ export async function POST(req: NextRequest) {
         throw new Error("TOURNAMENT_NOT_FOUND");
       }
 
-      // 2. Validate tournament status
-      if (tournament.status === TournamentStatus.CANCELLED) {
-        throw new Error("TOURNAMENT_CANCELLED");
-      }
-
-      if (tournament.status !== TournamentStatus.REGISTRATION_OPEN) {
-        throw new Error("REGISTRATION_NOT_OPEN");
-      }
-
-      // 3. Validate registration deadline if set
-      const now = new Date();
-      if (tournament.registrationCloseAt && now > tournament.registrationCloseAt) {
-        throw new Error("REGISTRATION_DEADLINE_PASSED");
-      }
-
-      if (tournament.registrationOpenAt && now < tournament.registrationOpenAt) {
-        throw new Error("REGISTRATION_NOT_YET_OPEN");
-      }
-
-      // Concurrency-safe atomic transaction with adequate timeout for serverless Neon pooler
+      // 2. Validate tournament status & registration eligibility
       await expireStalePendingRegistrations(tournament.id);
 
-      // 4. Validate capacity
-      const activeCount = tournament._count.registrations;
-      if (activeCount >= tournament.fieldCapacity) {
-        throw new Error("TOURNAMENT_CAPACITY_FULL");
+      const lifecycle = deriveTournamentLifecycle({
+        status: tournament.status,
+        startDate: tournament.startDate,
+        endDate: tournament.endDate,
+        registrationOpenAt: tournament.registrationOpenAt,
+        registrationCloseAt: tournament.registrationCloseAt,
+        fieldCapacity: tournament.fieldCapacity,
+        registrationsCount: tournament._count.registrations,
+        timeZone: tournament.timeZone,
+        publishedAt: tournament.publishedAt,
+      });
+
+      if (!lifecycle.canRegister) {
+        throw new Error(lifecycle.rejectionCode || "REGISTRATION_NOT_OPEN");
       }
 
       // 5. Validate division if provided or required
@@ -299,29 +291,74 @@ export async function POST(req: NextRequest) {
     const message = error.message || "";
 
     if (message === "TOURNAMENT_NOT_FOUND") {
-      return NextResponse.json({ error: "Tournament event not found." }, { status: 404 });
+      return NextResponse.json({ error: "Tournament event not found.", code: "TOURNAMENT_NOT_FOUND" }, { status: 404 });
+    }
+    if (message === "TOURNAMENT_IN_PROGRESS") {
+      return NextResponse.json(
+        {
+          error: "This tournament is currently in progress. Registrations are closed.",
+          code: "TOURNAMENT_IN_PROGRESS",
+        },
+        { status: 409 }
+      );
+    }
+    if (message === "REGISTRATION_CLOSED") {
+      return NextResponse.json(
+        {
+          error: "Registration is currently closed for this tournament.",
+          code: "REGISTRATION_CLOSED",
+        },
+        { status: 400 }
+      );
+    }
+    if (message === "TOURNAMENT_COMPLETED") {
+      return NextResponse.json(
+        {
+          error: "This tournament has completed. Registrations are closed.",
+          code: "TOURNAMENT_COMPLETED",
+        },
+        { status: 400 }
+      );
+    }
+    if (message === "TOURNAMENT_IN_REVIEW") {
+      return NextResponse.json(
+        {
+          error: "Tournament play has ended and scoring review is underway.",
+          code: "TOURNAMENT_IN_REVIEW",
+        },
+        { status: 400 }
+      );
+    }
+    if (message === "TOURNAMENT_NOT_PUBLISHED") {
+      return NextResponse.json(
+        {
+          error: "This tournament is in draft state and is not published.",
+          code: "TOURNAMENT_NOT_PUBLISHED",
+        },
+        { status: 400 }
+      );
     }
     if (message === "TOURNAMENT_CANCELLED") {
       return NextResponse.json(
-        { error: "This tournament has been cancelled. Registrations are not accepted." },
+        { error: "This tournament has been cancelled. Registrations are not accepted.", code: "TOURNAMENT_CANCELLED" },
         { status: 400 }
       );
     }
     if (message === "REGISTRATION_NOT_OPEN") {
       return NextResponse.json(
-        { error: "Registration is not currently open for this tournament." },
+        { error: "Registration is not currently open for this tournament.", code: "REGISTRATION_NOT_OPEN" },
         { status: 400 }
       );
     }
     if (message === "REGISTRATION_DEADLINE_PASSED") {
       return NextResponse.json(
-        { error: "The registration deadline for this tournament has passed." },
+        { error: "The registration deadline for this tournament has passed.", code: "REGISTRATION_DEADLINE_PASSED" },
         { status: 400 }
       );
     }
     if (message === "REGISTRATION_NOT_YET_OPEN") {
       return NextResponse.json(
-        { error: "Registration for this tournament has not opened yet." },
+        { error: "Registration for this tournament has not opened yet.", code: "REGISTRATION_NOT_YET_OPEN" },
         { status: 400 }
       );
     }
@@ -330,6 +367,7 @@ export async function POST(req: NextRequest) {
         {
           error:
             "This tournament has reached maximum player capacity. Registration is currently full.",
+          code: "TOURNAMENT_CAPACITY_FULL",
         },
         { status: 400 }
       );

@@ -1,15 +1,65 @@
 "use client";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { ArrowRight, ArrowUpRight, Trophy, CalendarDays, Award, Users, ChevronRight, Newspaper, Mail, Play, CheckCircle } from "lucide-react";
-import { tournaments } from "@/lib/data";
+import { tournaments, type Tournament } from "@/lib/data";
 import { TournamentCard } from "@/components/tournament-card";
 
 import { useMedia } from "@/components/media-provider";
 
 export default function HomePage() {
   const { getMedia } = useMedia();
-  const featured = tournaments.find((t) => t.featured) ?? tournaments[0];
-  const upcoming = tournaments.filter((t) => t.id !== featured.id).slice(0, 3);
+  const [tournamentList, setTournamentList] = useState<Tournament[]>(tournaments);
+
+  useEffect(() => {
+    fetch("/api/tournaments")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data?.tournaments && data.tournaments.length > 0) {
+          const formatMap: Record<string, any> = {
+            STROKE_PLAY: "Stroke Play",
+            STABLEFORD: "Stableford",
+            MATCH_PLAY: "Match Play",
+            SCRAMBLE: "Scramble",
+          };
+          const accessMap: Record<string, any> = {
+            PUBLIC: "Public",
+            MEMBERS_ONLY: "Members only",
+            INVITATIONAL: "Members only",
+          };
+          const formatted: Tournament[] = data.tournaments.map((dbT: any) => ({
+            id: dbT.slug,
+            name: dbT.name,
+            club: dbT.hostClub?.name || "Prestige Golfshire Club",
+            location: [dbT.hostClub?.city, dbT.hostClub?.state].filter(Boolean).join(", ") || "Metropolitan District",
+            region: dbT.hostClub?.country === "India" ? "India" : "International",
+            startDate: typeof dbT.startDate === "string" ? dbT.startDate.split("T")[0] : new Date(dbT.startDate).toISOString().split("T")[0],
+            endDate: typeof dbT.endDate === "string" ? dbT.endDate.split("T")[0] : new Date(dbT.endDate).toISOString().split("T")[0],
+            format: formatMap[dbT.format] || "Stroke Play",
+            access: accessMap[dbT.access] || "Public",
+            entryFee: Number(dbT.entryFee) || 0,
+            currency: "USD",
+            spotsLeft: dbT.lifecycle?.spotsLeft ?? 0,
+            fieldSize: dbT.fieldCapacity,
+            image: dbT.heroImageUrl || "https://images.unsplash.com/photo-1592919505780-303950717480?auto=format&fit=crop&w=1200&q=85",
+            featured: dbT.featured,
+            status: dbT.lifecycle?.displayStatus || "Coming soon",
+            badgeLabel: dbT.lifecycle?.badgeLabel,
+            badgeStyle: dbT.lifecycle?.badgeStyle,
+            detailStatusLabel: dbT.lifecycle?.detailStatusLabel,
+            detailStatusDescription: dbT.lifecycle?.detailStatusDescription,
+            ctaLabel: dbT.lifecycle?.ctaLabel,
+            canRegister: dbT.lifecycle?.canRegister,
+            handicapRequired: dbT.handicapRequired,
+          }));
+          setTournamentList(formatted);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const featured = tournamentList.find((t) => t.featured) ?? tournamentList[0];
+  const upcoming = tournamentList.filter((t) => t.id !== featured.id).slice(0, 3);
 
   const heroBg = getMedia(
     "home.hero.main",

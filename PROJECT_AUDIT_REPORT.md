@@ -575,6 +575,86 @@ flowchart TD
       - `npx prisma validate`: Valid 🚀.
       - `npx next build`: Exit Code 0 across all 51 routes.
 
+18. **Phase 4.4 — Tournament Lifecycle & Registration Status Synchronization (October 23, 2026):**
+    - **Incident Investigation & Root Cause Analysis:**
+      - **Reported Bug:** Inconsistency across three screens for *PGA Metropolitan Winter Championship*:
+        1. *Admin Tournament Management:* Displayed `IN PROGRESS` (registration closed, 14–15 Nov 2026, 2/120 registered).
+        2. *Public Tournament Listing:* Displayed green `Registration open` badge.
+        3. *Public Tournament Detail Page:* Displayed `Tournament status: Coming soon.` and CTA button `Notify me when open`.
+      - **Database Forensic Audit:**
+        - Record: `id: cmvb07hf1000ja72nf8gp2zei`, `slug: "indore-open-2026"`, `name: "PGA Metropolitan Winter Championship"`.
+        - Neon database stored status was already `IN_PROGRESS` (`startDate: 2026-11-14T08:00:00Z`, `endDate: 2026-11-15T18:00:00Z`, `fieldCapacity: 120`, 2 confirmed registrations: 1 unpaid pending, 1 paid).
+        - No database corruption or erroneous date records were found.
+      - **Root Cause Identified:**
+        1. *Listing Screen (`app/tournaments/page.tsx`):* Contained a local `statusMap` that only mapped `REGISTRATION_OPEN`, `PUBLISHED`, and `DRAFT`. For `IN_PROGRESS`, it evaluated to `statusMap[dbT.status] || "Registration open"`, erroneously falling back to `"Registration open"`.
+        2. *Detail Screen (`app/tournaments/[slug]/page.tsx`):* Contained a different local `statusMap` that hardcoded all non-open statuses (`IN_PROGRESS`, `REGISTRATION_CLOSED`, `SCORING_REVIEW`, `FINALIZED`, `CANCELLED`) to `"Coming soon"`. In `TournamentRegistrationButton`, non-open statuses defaulted to button text `"Notify me when open"`.
+        3. *Type Definition Restriction (`lib/data.ts`):* Constrained `Tournament.status` to a union of `"Registration open" | "Coming soon"`, forcing developers to squash diverse lifecycle states into only two strings.
+        4. *Payment Order API Leak:* `lib/payments/service.ts` (`initiateCheckout`) verified registration status and payment status, but omitted a tournament lifecycle eligibility check, permitting checkout order creation even if a tournament had moved to `IN_PROGRESS`, `CANCELLED`, or `REGISTRATION_CLOSED`.
+    - **Architectural Remediation Implemented:**
+      - **Centralized Tournament Lifecycle Service (`lib/tournament-lifecycle.ts`):**
+        - Single authoritative server-side helper `deriveTournamentLifecycle(input: TournamentLifecycleInput)`.
+        - Enforces explicit lifecycle mappings across all 8 Prisma `TournamentStatus` enums (`DRAFT`, `PUBLISHED`, `REGISTRATION_OPEN`, `REGISTRATION_CLOSED`, `IN_PROGRESS`, `SCORING_REVIEW`, `FINALIZED`, `CANCELLED`).
+        - Evaluates:
+          - Publication state (`DRAFT` unpublished tournaments hidden from public discovery and 404 on direct URLs).
+          - Registration windows (`registrationOpenAt` and `registrationCloseAt` relative to UTC timestamps).
+          - Field capacity (`activeCount >= fieldCapacity` transitions to `Full`, disallows registration).
+          - Manual administrative closure (`REGISTRATION_CLOSED`).
+          - Tournament play states (`IN_PROGRESS`, `SCORING_REVIEW`, `FINALIZED`, `CANCELLED`).
+        - Produces consistent, typed output: `rawStatus`, `displayStatus`, `badgeLabel`, `badgeStyle`, `detailStatusLabel`, `detailStatusDescription`, `ctaLabel`, `isCtaDisabled`, `canRegister`, `rejectionCode`, `rejectionReason`, `spotsLeft`.
+      - **UI & Badge Styling (`app/globals.css`, `components/tournament-card.tsx`):**
+        - Added dedicated luxury badge pill styles for all lifecycle states:
+          - `.status-open` (Navy / Gold dot)
+          - `.status-inprogress` (Purple / Lavender dot)
+          - `.status-closed` (Amber / Yellow dot)
+          - `.status-full` (Burgundy / Rose dot)
+          - `.status-completed` (Slate / Cool gray dot)
+          - `.status-cancelled` (Dark Red / Crimson dot)
+          - `.status-review` (Indigo / Periwinkle dot)
+        - `TournamentCard` renders `badgeClass` and `badgeText` derived canonically from lifecycle rules.
+      - **Detail Page & Registration Button (`app/tournaments/[slug]/page.tsx`, `components/tournament-registration-button.tsx`):**
+        - Detail page displays `detailStatusLabel` (e.g. `In progress`) in the event overview grid and `detailStatusDescription` ("This tournament is currently in progress. Registrations are closed.") in the entry card.
+        - `TournamentRegistrationButton` receives authoritative `canRegister` and `ctaLabel`. For `IN_PROGRESS`, displays disabled button `Tournament in progress ↗` (no "Notify me when open", no registration modal trigger).
+      - **Server-Side Registration & Payment Order Enforcement (`app/api/tournaments/register/route.ts`, `lib/payments/service.ts`, `app/api/payments/create-order/route.ts`):**
+        - `POST /api/tournaments/register` evaluates `deriveTournamentLifecycle` inside the atomic database transaction. If `!canRegister`, immediately rejects with HTTP 409/400 and structured error code (`TOURNAMENT_IN_PROGRESS`, `REGISTRATION_CLOSED`, `TOURNAMENT_COMPLETED`, etc.).
+        - `initiateCheckout` in `lib/payments/service.ts` verifies tournament lifecycle eligibility before issuing Razorpay orders or internal tokens.
+        - `POST /api/payments/create-order` maps lifecycle rejection codes to descriptive HTTP 400/409 responses.
+      - **Public Tournament Feed & Revalidation (`app/api/tournaments/route.ts`, `app/api/admin/tournaments/[id]/route.ts`):**
+        - Created `/api/tournaments` with automatic lifecycle derivation.
+        - Admin tournament status changes call `revalidatePath("/tournaments")`, `revalidatePath("/tournaments/[slug]")`, and `revalidatePath("/")`.
+    - **Regression Test Matrix Execution (`scripts/qa-tournament-lifecycle.js`):**
+      - Direct Unit Tests (60 assertions):
+        1. `IN_PROGRESS`: `canRegister: false`, badge: `"In progress"`, CTA: `"Tournament in progress"`.
+        2. `PUBLISHED`: `canRegister: false`, badge: `"Coming soon"`, CTA: `"Notify me when open"`.
+        3. `REGISTRATION_OPEN`: `canRegister: true`, badge: `"Registration open"`, CTA: `"Register for tournament"`.
+        4. `REGISTRATION_CLOSED`: `canRegister: false`, badge: `"Registration closed"`, CTA: `"Registration closed"`.
+        5. `FINALIZED`: `canRegister: false`, badge: `"Completed"`, CTA: `"Tournament completed"`.
+        6. `CANCELLED`: `canRegister: false`, badge: `"Cancelled"`, CTA: `"Tournament cancelled"`.
+        7. Full capacity (`spotsLeft <= 0`): `canRegister: false`, badge: `"Full"`, CTA: `"Tournament at capacity"`.
+        8. Window boundaries:
+           - Before `registrationOpenAt`: `canRegister: false`, badge: `"Opens soon"`.
+           - Within open window: `canRegister: true`, badge: `"Registration open"`.
+           - After `registrationCloseAt`: `canRegister: false`, badge: `"Registration closed"`.
+      - Database State Audit for PGA Metropolitan Winter Championship (`indore-open-2026`):
+        - Stored DB status verified as `IN_PROGRESS`.
+        - Lifecycle evaluation verified: `canRegister === false`, badge `"In progress"`, CTA `"Tournament in progress"`.
+        - Legitimate existing confirmed and paid registrations preserved untouched.
+      - Server-Side Rejection Enforcement:
+        - `simulateInitiateCheckout` verified rejecting pending orders on `IN_PROGRESS` tournaments with `TOURNAMENT_IN_PROGRESS`.
+        - Registration simulation verified rejecting `indore-open-2026` with HTTP 409 / `TOURNAMENT_IN_PROGRESS`.
+        - Registration simulation verified allowing registrations for `REGISTRATION_OPEN` tournaments.
+      - **Results:** 66/66 assertions PASSED (0 failures).
+    - **Full Regression Test Matrix Across Codebase:**
+      - `npx prisma validate`: Schema valid 🚀 (Exit code 0).
+      - `node scripts/qa-tournament-lifecycle.js`: 66/66 assertions PASSED.
+      - `node --env-file=.env.local scripts/qa-scoring-audit.js`: 38/38 assertions PASSED.
+      - `node --env-file=.env.local scripts/qa-payments-audit.js`: 7/7 assertions PASSED.
+      - `node --env-file=.env.local scripts/qa-refunds-audit.js`: 10/10 assertions PASSED.
+      - `node --env-file=.env.local scripts/qa-financial-edge-cases.js`: 12/12 assertions PASSED.
+      - `node --env-file=.env.local scripts/qa-payment-security-regression.js`: 6/6 assertions PASSED.
+      - `node --env-file=.env.local scripts/test-e2e-verification.js`: 14/14 assertions PASSED.
+      - `node --env-file=.env.local scripts/qa-contact-audit.js`: 10/10 assertions PASSED.
+      - `npx next build`: Exit Code 0 across all 52 App Router routes.
+
 
 
 

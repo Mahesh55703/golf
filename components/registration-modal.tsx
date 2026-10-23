@@ -589,14 +589,20 @@ export function RegistrationModal({
 
               <div>
                 <span className="text-[10px] font-extrabold uppercase tracking-widest text-[#9e7932] block mb-1">
-                  Secure Checkout
+                  {paymentData.isSimulation ? "Development Sandbox Checkout" : "Secure Checkout"}
                 </span>
                 <h3 className="text-xl font-black text-[#0e2138]">
                   Complete Entry Fee Payment
                 </h3>
-                <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
-                  Your place is reserved pending payment verification.
-                </p>
+                {paymentData.isSimulation ? (
+                  <div className="mt-1 px-3 py-1 bg-amber-50 border border-amber-200 rounded-lg text-amber-800 text-[11px] font-semibold inline-block">
+                    ⚠️ SIMULATED PAYMENT (TEST MODE) — NO REAL FUNDS WILL BE CHARGED
+                  </div>
+                ) : (
+                  <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
+                    Your place is reserved pending payment verification.
+                  </p>
+                )}
               </div>
 
               <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 max-w-sm mx-auto text-left space-y-2.5">
@@ -608,9 +614,16 @@ export function RegistrationModal({
                 </div>
                 <div className="flex items-center justify-between pb-2 border-b border-slate-200">
                   <span className="text-slate-500">Payment Ref</span>
-                  <span className="font-mono font-bold text-slate-900">
-                    {paymentData.paymentReference}
-                  </span>
+                  <div className="text-right">
+                    <span className="font-mono font-bold text-slate-900 block">
+                      {paymentData.paymentReference}
+                    </span>
+                    {paymentData.isSimulation && (
+                      <span className="text-[9px] font-bold text-amber-700 bg-amber-100 px-1.5 py-0.2 rounded border border-amber-300">
+                        SIMULATED ORDER
+                      </span>
+                    )}
+                  </div>
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-slate-500 font-bold">Total Payable</span>
@@ -621,8 +634,12 @@ export function RegistrationModal({
               </div>
 
               <div className="flex items-center justify-center gap-1.5 text-[11px] text-slate-500">
-                <Lock size={12} className="text-emerald-600" />
-                <span>256-bit encrypted gateway verification</span>
+                <Lock size={12} className={paymentData.isSimulation ? "text-amber-600" : "text-emerald-600"} />
+                <span>
+                  {paymentData.isSimulation
+                    ? "Sandbox Simulation (ENABLE_PAYMENT_SIMULATION=true)"
+                    : "256-bit encrypted gateway verification"}
+                </span>
               </div>
 
               <div className="pt-3 border-t border-slate-100 flex items-center justify-center gap-3">
@@ -640,7 +657,11 @@ export function RegistrationModal({
                   className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-[#c29b4e] to-[#dfbf77] text-[#0e2138] font-bold hover:brightness-105 active:scale-95 disabled:opacity-50 transition-all flex items-center gap-2 shadow-md shadow-[#c29b4e]/20"
                 >
                   {verifyingPayment && <Loader2 size={14} className="animate-spin text-[#0e2138]" />}
-                  {verifyingPayment ? "Verifying..." : `Pay ${paymentData.amount.toFixed(2)} ${paymentData.currency}`}
+                  {verifyingPayment
+                    ? (paymentData.isSimulation ? "Simulating Payment..." : "Verifying...")
+                    : paymentData.isSimulation
+                    ? `Simulate Pay ${paymentData.amount.toFixed(2)} ${paymentData.currency} (TEST)`
+                    : `Pay ${paymentData.amount.toFixed(2)} ${paymentData.currency}`}
                 </button>
               </div>
             </div>
@@ -681,9 +702,16 @@ export function RegistrationModal({
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-slate-500">Payment Status</span>
-                  <span className="inline-flex items-center gap-1 font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
-                    <ShieldCheck size={12} /> {confirmedRegistration.paymentStatus || "PAID"}
-                  </span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="inline-flex items-center gap-1 font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                      <ShieldCheck size={12} /> {confirmedRegistration.paymentStatus || "PAID"}
+                    </span>
+                    {paymentData?.isSimulation && (
+                      <span className="text-[10px] font-bold text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded border border-amber-300">
+                        SIMULATED TEST
+                      </span>
+                    )}
+                  </div>
                 </div>
               </div>
 

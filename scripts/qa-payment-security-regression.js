@@ -495,6 +495,92 @@ async function main() {
     assert(simVerify.registration.status === RegistrationStatus.CONFIRMED, "Registration confirmed in allowed simulation");
     assert(simVerify.registration.paymentStatus === PaymentStatus.PAID, "Registration paid in allowed simulation");
 
+    console.log("\n[Test 7: Simulation payment failure, retry order, and state transitions]");
+    // Create a new simulated registration to test failure and retry
+    const testGolferRetry = await prisma.golferProfile.create({
+      data: {
+        firstName: "SecRetry",
+        lastName: "Golfer",
+        email: `sec.retry.${Date.now()}@golfpulse.test`,
+        country: "India",
+      },
+    });
+
+    const retryRegistration = await prisma.registration.create({
+      data: {
+        referenceNumber: `GP-RETRY-${Date.now().toString().slice(-5)}`,
+        tournamentId: testTournament.id,
+        golferId: testGolferRetry.id,
+        status: RegistrationStatus.PENDING,
+        paymentStatus: PaymentStatus.UNPAID,
+        entryFeePaid: 0,
+        currency: "USD",
+      },
+    });
+
+    // 7A: Create initial checkout order
+    const firstCheckout = await simulateInitiateCheckout(
+      retryRegistration.id,
+      { NODE_ENV: "development", ENABLE_PAYMENT_SIMULATION: "true" },
+      false
+    );
+    assert(firstCheckout.orderId.startsWith("order_sim_"), "Initial simulated order created");
+
+    // 7B: Simulate payment failure (e.g. invalid dev token or client abort)
+    let failedAttemptCaught = false;
+    try {
+      await simulateFinalizePaymentVerification(
+        {
+          orderId: firstCheckout.orderId,
+          paymentId: "pay_sim_failed",
+          signature: "INVALID_DEV_SIGNATURE",
+        },
+        { NODE_ENV: "development", ENABLE_PAYMENT_SIMULATION: "true" },
+        false
+      );
+    } catch (err) {
+      failedAttemptCaught = true;
+      assert(err.message.includes("INVALID_PAYMENT_SIGNATURE"), `Failed attempt rejected: ${err.message}`);
+    }
+    assert(failedAttemptCaught === true, "Simulated payment failure rejected verification");
+
+    // Mark failed payment as FAILED
+    await prisma.payment.updateMany({
+      where: { providerOrderId: firstCheckout.orderId },
+      data: {
+        status: TransactionStatus.FAILED,
+        failureCode: "SIM_USER_CANCELLED",
+        failureReason: "User aborted simulated payment modal",
+      },
+    });
+
+    // Verify registration remains PENDING and UNPAID
+    const checkFailedReg = await prisma.registration.findUnique({ where: { id: retryRegistration.id } });
+    assert(checkFailedReg.status === RegistrationStatus.PENDING, "Registration remains PENDING after payment failure");
+    assert(checkFailedReg.paymentStatus === PaymentStatus.UNPAID, "Registration remains UNPAID after payment failure");
+
+    // 7C: Golfer retries payment: generate new checkout order
+    const retryCheckout = await simulateInitiateCheckout(
+      retryRegistration.id,
+      { NODE_ENV: "development", ENABLE_PAYMENT_SIMULATION: "true" },
+      false
+    );
+    assert(retryCheckout.orderId !== firstCheckout.orderId, "Retry generated a new distinct providerOrderId");
+
+    // 7D: Complete retry with valid simulation token
+    const retryVerify = await simulateFinalizePaymentVerification(
+      {
+        orderId: retryCheckout.orderId,
+        paymentId: `pay_sim_retry_${Date.now().toString().slice(-4)}`,
+        signature: "DEV_SIMULATED_SIGNATURE",
+      },
+      { NODE_ENV: "development", ENABLE_PAYMENT_SIMULATION: "true" },
+      false
+    );
+    assert(retryVerify.payment.status === TransactionStatus.SUCCESS, "Retried payment transitioned to SUCCESS");
+    assert(retryVerify.registration.status === RegistrationStatus.CONFIRMED, "Registration transitioned to CONFIRMED on retry");
+    assert(retryVerify.registration.paymentStatus === PaymentStatus.PAID, "Registration transitioned to PAID on retry");
+
     // Clean up test fixtures
     console.log("\n[Cleanup: Removing test fixtures cleanly]");
     await prisma.payment.deleteMany({
@@ -512,12 +598,12 @@ async function main() {
     await prisma.tournament.deleteMany({
       where: { id: { in: [testTournament.id, freeTournament.id] } },
     });
-    await prisma.golferProfile.deleteMany({ where: { id: { in: [testGolfer.id, testGolferSim.id] } } });
+    await prisma.golferProfile.deleteMany({ where: { id: { in: [testGolfer.id, testGolferSim.id, testGolferRetry.id] } } });
 
     console.log("  ✓ All isolated security QA fixtures cleaned up cleanly.");
 
     console.log("\n================================================================================");
-    console.log("🎉 ALL PAYMENT SECURITY & ANTI-SIMULATION REGRESSION TESTS PASSED (6/6)");
+    console.log("🎉 ALL PAYMENT SECURITY & ANTI-SIMULATION REGRESSION TESTS PASSED (7/7)");
     console.log("================================================================================\n");
   } finally {
     process.env = originalEnv;

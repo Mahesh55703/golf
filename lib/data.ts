@@ -1,3 +1,8 @@
+import type {
+  TournamentDisplayStatus,
+  TournamentBadgeStyle,
+} from "@/lib/tournament-lifecycle";
+
 export type Tournament = {
   id: string;
   name: string;
@@ -14,7 +19,14 @@ export type Tournament = {
   fieldSize: number;
   image: string;
   featured?: boolean;
-  status: "Registration open" | "Coming soon";
+  status: TournamentDisplayStatus;
+  rawStatus?: string;
+  badgeLabel?: string;
+  badgeStyle?: TournamentBadgeStyle;
+  detailStatusLabel?: string;
+  detailStatusDescription?: string;
+  ctaLabel?: string;
+  canRegister?: boolean;
   handicapRequired: boolean;
 };
 

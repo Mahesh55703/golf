@@ -3,6 +3,7 @@ import { razorpayGateway } from "./razorpay";
 import { toMinorUnits, fromMinorUnits } from "./types";
 import { TransactionStatus, PaymentStatus, RegistrationStatus, AuditAction } from "@prisma/client";
 import { logAdminAudit } from "@/lib/auth";
+import { deriveTournamentLifecycle } from "@/lib/tournament-lifecycle";
 
 export const PAYMENT_RESERVATION_TIMEOUT_MINUTES = 30;
 
@@ -69,7 +70,19 @@ export async function initiateCheckout(registrationId: string) {
     const registration = await tx.registration.findUnique({
       where: { id: registrationId },
       include: {
-        tournament: true,
+        tournament: {
+          include: {
+            _count: {
+              select: {
+                registrations: {
+                  where: {
+                    status: { in: [RegistrationStatus.CONFIRMED, RegistrationStatus.PENDING] },
+                  },
+                },
+              },
+            },
+          },
+        },
         golfer: true,
         payments: {
           orderBy: { createdAt: "desc" },
@@ -88,6 +101,23 @@ export async function initiateCheckout(registrationId: string) {
 
     if (registration.paymentStatus === PaymentStatus.PAID) {
       throw new Error("ALREADY_PAID");
+    }
+
+    // Authoritative check: tournament must be active and eligible for registration and checkout
+    const lifecycle = deriveTournamentLifecycle({
+      status: registration.tournament.status,
+      startDate: registration.tournament.startDate,
+      endDate: registration.tournament.endDate,
+      registrationOpenAt: registration.tournament.registrationOpenAt,
+      registrationCloseAt: registration.tournament.registrationCloseAt,
+      fieldCapacity: registration.tournament.fieldCapacity,
+      registrationsCount: registration.tournament._count?.registrations,
+      timeZone: registration.tournament.timeZone,
+      publishedAt: registration.tournament.publishedAt,
+    });
+
+    if (!lifecycle.canRegister) {
+      throw new Error(lifecycle.rejectionCode || "REGISTRATION_NOT_OPEN");
     }
 
     const serverAmount = Number(registration.tournament.entryFee);
@@ -282,6 +312,7 @@ export async function finalizePaymentVerification(params: {
     const now = new Date();
 
     // Update payment record
+    const isSimulatedTransaction = orderId.startsWith("order_sim_") || paymentId.startsWith("pay_sim_");
     const updatedPayment = await tx.payment.update({
       where: { id: payment.id },
       data: {
@@ -289,6 +320,10 @@ export async function finalizePaymentVerification(params: {
         providerSignature: signature,
         status: TransactionStatus.SUCCESS,
         paidAt: now,
+        metadata: {
+          ...(typeof payment.metadata === "object" && payment.metadata !== null ? payment.metadata : {}),
+          ...(isSimulatedTransaction ? { simulation: true, mode: "DEV_SIMULATION" } : {}),
+        },
       },
     });
 
