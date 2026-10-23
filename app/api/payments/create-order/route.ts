@@ -39,6 +39,17 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "This registration has been cancelled." }, { status: 400 });
     }
 
+    if (msg.startsWith("PAYMENT_GATEWAY_UNAVAILABLE")) {
+      return NextResponse.json(
+        {
+          error:
+            "Online payment gateway is temporarily unavailable. Please try again later or contact the tournament organizer.",
+          code: "PAYMENT_GATEWAY_UNAVAILABLE",
+        },
+        { status: 503 }
+      );
+    }
+
     return NextResponse.json(
       { error: "Failed to initiate payment order.", details: error.message },
       { status: 500 }

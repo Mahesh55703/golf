@@ -539,6 +539,43 @@ flowchart TD
     - **Release Gate Policy:**
       - **HOLD on live production customer charges** until manual acceptance checklist (Razorpay test mode and Resend email verification) is completed against the live Vercel production domain.
 
+17. **Phase 4.3 — Critical Payment Security: Disabling Production Payment Simulation (October 23, 2026):**
+    - **Incident Investigation & Root Cause:**
+      - **Observed Behavior:** Tournament registration `GP-2026-RJUJ2` for Monsoon Stableford Challenge ($25.00 USD entry fee) transitioned to `CONFIRMED` and payment `GP-PAY-2026-EKVEE` was recorded as `PAID` without opening the Razorpay Checkout popup interface.
+      - **Database Forensic Evidence:** Direct query confirmed `provider = "RAZORPAY"`, `providerOrderId = "order_sim_88f1119e-abe9-"`, `providerPaymentId = "pay_sim_394447"`, and `providerSignature = "DEV_SIMULATED_SIGNATURE"`.
+      - **Root Cause:** In the initial payment implementation, if `RAZORPAY_KEY_ID` or `RAZORPAY_KEY_SECRET` was unconfigured, the system automatically generated an internal `order_sim_*` token and returned `isConfigured: false`. In the client UI, `handleExecuteCheckout()` fell back to a 1-second timeout that called `/api/payments/verify` with `pay_sim_*` and `DEV_SIMULATED_SIGNATURE`. The verification endpoint accepted `DEV_SIMULATED_SIGNATURE` whenever the gateway was not configured, prematurely confirming registrations as PAID without provider verification.
+    - **Security Hardening Implemented:**
+      - **Production Simulation Elimination:** Added `isPaymentSimulationAllowed()` guard. Whenever `NODE_ENV === "production"`, payment simulation is unconditionally disabled, regardless of environment variables or flags.
+      - **Explicit Non-Production Flag:** In non-production environments (`development`, `test`), simulation is only permitted if explicitly opted in via `ENABLE_PAYMENT_SIMULATION="true"`.
+      - **Fail-Closed Checkout Order Creation:** In `lib/payments/service.ts` (`initiateCheckout`), if Razorpay credentials are missing and simulation is not allowed, the order creation throws `PAYMENT_GATEWAY_UNAVAILABLE`. `app/api/payments/create-order/route.ts` returns HTTP 503 (`PAYMENT_GATEWAY_UNAVAILABLE`) with an informative user error.
+      - **Cryptographic Verification Enforcement:** In `finalizePaymentVerification`, `DEV_SIMULATED_SIGNATURE`, `order_sim_*`, and `pay_sim_*` are rejected in production or whenever simulation is not permitted. Only genuine HMAC-SHA256 signatures matching `razorpay_order_id|razorpay_payment_id` can transition a payment to `SUCCESS` and registration to `PAID`.
+      - **Frontend Fail-Closed State:** In `components/registration-modal.tsx`, the client checkout handler now checks `paymentData.isConfigured && paymentData.keyId`. If unconfigured and not in explicit simulation mode (`paymentData.isSimulation`), it presents a prominent error banner ("Payment checkout is temporarily unavailable...") and disables simulated success.
+      - **Free Tournament Registration Preserved:** Verified that free tournaments (`entryFee <= 0`) continue to immediately transition to `FREE_ENTRY` and `CONFIRMED` without invoking or requiring Razorpay.
+    - **Database Record Remediation Procedure for GP-2026-RJUJ2 & GP-PAY-2026-EKVEE:**
+      - In accordance with financial audit principles, records `GP-2026-RJUJ2` and `GP-PAY-2026-EKVEE` must **not be deleted or rewritten** to preserve the immutable audit log.
+      - **Recommended Remediation Protocol:**
+        1. Maintain the existing payment record `GP-PAY-2026-EKVEE` with its historical `DEV_SIMULATED_SIGNATURE`.
+        2. Set metadata flag `metadata: { auditCorrection: "SIMULATED_PAYMENT_VOIDED", notes: "Marked void due to unconfigured dev simulation bypass in test environment" }`.
+        3. If the golfer is a genuine registrant, re-issue checkout via Razorpay test mode once valid `RAZORPAY_KEY_ID` / `RAZORPAY_KEY_SECRET` credentials are provided, or update status through admin reconciliation (`/api/admin/registrations/reconcile`) with audit action `RECONCILIATION_CORRECTION`.
+    - **New Security Regression Suite (`scripts/qa-payment-security-regression.js`):**
+      - Test 1: Policy validation for `isPaymentSimulationAllowed()` (6/6 matrix assertions passed).
+      - Test 2: Production paid checkout rejection when credentials missing (asserts HTTP 503 / `PAYMENT_GATEWAY_UNAVAILABLE`).
+      - Test 3: Production verification rejection of simulated signature, order ID, and payment ID.
+      - Test 4: Genuine Razorpay signature verification & forgery defense in production (valid HMAC passes, tampered HMAC rejected).
+      - Test 5: Free tournament registration unaffected by payment gateway state (`isFree: true`, `FREE_ENTRY`).
+      - Test 6: Explicit non-production simulation when `ENABLE_PAYMENT_SIMULATION="true"`.
+    - **Full Regression Verification Results:**
+      - `node scripts/qa-payment-security-regression.js`: 6/6 assertions PASSED.
+      - `node scripts/qa-payments-audit.js`: 7/7 assertions PASSED.
+      - `node scripts/qa-refunds-audit.js`: 10/10 assertions PASSED.
+      - `node scripts/qa-financial-edge-cases.js`: 12/12 assertions PASSED.
+      - `node scripts/test-e2e-verification.js`: 14/14 assertions PASSED.
+      - `node scripts/qa-scoring-audit.js`: 38/38 assertions PASSED.
+      - `node scripts/qa-contact-audit.js`: 10/10 assertions PASSED.
+      - `npx prisma validate`: Valid 🚀.
+      - `npx next build`: Exit Code 0 across all 51 routes.
+
+
 
 
 

@@ -7,6 +7,20 @@ import { logAdminAudit } from "@/lib/auth";
 export const PAYMENT_RESERVATION_TIMEOUT_MINUTES = 30;
 
 /**
+ * Checks whether simulated payment flow is permitted.
+ * STRICT SECURITY INVARIANT:
+ * - In production (NODE_ENV === "production"), payment simulation is completely disabled.
+ * - In non-production environments, simulation is only allowed if explicitly opted in via
+ *   ENABLE_PAYMENT_SIMULATION === "true".
+ */
+export function isPaymentSimulationAllowed(): boolean {
+  if (process.env.NODE_ENV === "production") {
+    return false;
+  }
+  return process.env.ENABLE_PAYMENT_SIMULATION === "true";
+}
+
+/**
  * Check and clean expired reservations for a tournament.
  * Runs atomically when checking capacity without requiring an external cron daemon.
  */
@@ -107,17 +121,23 @@ export async function initiateCheckout(registrationId: string) {
       Number(latestPayment.amount) === serverAmount &&
       latestPayment.currency === serverCurrency
     ) {
-      return {
-        isFree: false,
-        paymentReference: latestPayment.referenceNumber,
-        provider: latestPayment.provider,
-        orderId: latestPayment.providerOrderId,
-        amount: Number(latestPayment.amount),
-        amountMinor: latestPayment.amountMinor,
-        currency: latestPayment.currency,
-        keyId: razorpayGateway.getKeyId(),
-        isConfigured: razorpayGateway.isConfigured(),
-      };
+      // In production or when simulation is not permitted, never return a simulated order
+      if (latestPayment.providerOrderId.startsWith("order_sim_") && !isPaymentSimulationAllowed()) {
+        // Drop into standard flow to create a real gateway order or reject if not configured
+      } else {
+        return {
+          isFree: false,
+          paymentReference: latestPayment.referenceNumber,
+          provider: latestPayment.provider,
+          orderId: latestPayment.providerOrderId,
+          amount: Number(latestPayment.amount),
+          amountMinor: latestPayment.amountMinor,
+          currency: latestPayment.currency,
+          keyId: razorpayGateway.getKeyId(),
+          isConfigured: razorpayGateway.isConfigured(),
+          isSimulation: latestPayment.providerOrderId.startsWith("order_sim_"),
+        };
+      }
     }
 
     const amountMinor = toMinorUnits(serverAmount, serverCurrency);
@@ -136,7 +156,13 @@ export async function initiateCheckout(registrationId: string) {
       });
       providerOrderId = orderRes.orderId;
     } else {
-      // In development or when credentials are not yet set, generate a pending internal order token
+      // In production or when simulation is not explicitly enabled, reject immediately
+      if (!isPaymentSimulationAllowed()) {
+        throw new Error(
+          "PAYMENT_GATEWAY_UNAVAILABLE: Razorpay payment gateway is not configured on the server. Paid tournament registrations are temporarily unavailable."
+        );
+      }
+      // Non-production explicitly opted into simulation via ENABLE_PAYMENT_SIMULATION="true"
       providerOrderId = `order_sim_${crypto.randomUUID().slice(0, 14)}`;
     }
 
@@ -171,6 +197,7 @@ export async function initiateCheckout(registrationId: string) {
       currency: serverCurrency,
       keyId: razorpayGateway.getKeyId(),
       isConfigured,
+      isSimulation: !isConfigured && isPaymentSimulationAllowed(),
     };
   });
 }
@@ -185,7 +212,20 @@ export async function finalizePaymentVerification(params: {
 }) {
   const { orderId, paymentId, signature } = params;
 
-  // 1. Verify cryptographic HMAC signature
+  // 1. Production Security Enforcement: Block simulated values
+  if (process.env.NODE_ENV === "production" || !isPaymentSimulationAllowed()) {
+    if (
+      signature === "DEV_SIMULATED_SIGNATURE" ||
+      orderId.startsWith("order_sim_") ||
+      paymentId.startsWith("pay_sim_")
+    ) {
+      throw new Error(
+        "INVALID_PAYMENT_SIGNATURE: Payment simulation is strictly prohibited in production."
+      );
+    }
+  }
+
+  // 2. Verify cryptographic HMAC signature
   const isConfigured = razorpayGateway.isConfigured();
   if (isConfigured) {
     const isValid = razorpayGateway.verifyPaymentSignature({
@@ -197,8 +237,8 @@ export async function finalizePaymentVerification(params: {
       throw new Error("INVALID_PAYMENT_SIGNATURE: Cryptographic signature mismatch.");
     }
   } else {
-    // When gateway not configured, fail securely unless in explicit dev/sim mode with dev signature
-    if (signature !== "DEV_SIMULATED_SIGNATURE") {
+    // When gateway not configured, fail securely unless in non-production with explicit simulation enabled
+    if (!isPaymentSimulationAllowed() || signature !== "DEV_SIMULATED_SIGNATURE") {
       throw new Error("INVALID_PAYMENT_SIGNATURE: Gateway credentials not configured.");
     }
   }

@@ -240,12 +240,17 @@ export function RegistrationModal({
 
       const rzp = new window.Razorpay(options);
       rzp.open();
-    } else {
-      // In development / demo environment without configured live merchant credentials
+    } else if (paymentData.isSimulation) {
+      // Only in explicit non-production environments with simulation enabled
       setVerifyingPayment(true);
       setTimeout(async () => {
         await verifyAndFinalize(paymentData.orderId, `pay_sim_${Date.now().toString().slice(-6)}`, "DEV_SIMULATED_SIGNATURE");
       }, 1000);
+    } else {
+      // Unconfigured in production or simulation disabled
+      setServerError(
+        "Payment checkout is temporarily unavailable. Razorpay credentials are not configured on the server."
+      );
     }
   };
 
