@@ -57,6 +57,12 @@ export async function POST(req: NextRequest) {
       const paymentId = paymentEntity?.id;
 
       if (orderId) {
+        // Security guard: Ignore any simulated order or payment tokens in webhooks
+        if (orderId.startsWith("order_sim_") || (paymentId && paymentId.startsWith("pay_sim_"))) {
+          console.warn("Rejecting simulated order/payment token in webhook processing:", { orderId, paymentId });
+          return NextResponse.json({ error: "Simulated orders cannot be processed via webhook" }, { status: 400 });
+        }
+
         await prisma.$transaction(async (tx) => {
           const payment = await tx.payment.findFirst({
             where: { providerOrderId: orderId },

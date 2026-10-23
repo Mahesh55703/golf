@@ -612,14 +612,14 @@ export function RegistrationModal({
 
               <div>
                 <span className="text-[10px] font-extrabold uppercase tracking-widest text-[#9e7932] block mb-1">
-                  {paymentData.isSimulation ? "Development Sandbox Checkout" : "Secure Checkout"}
+                  {paymentData.isSimulation ? "PREVIEW SANDBOX CHECKOUT" : "Secure Checkout"}
                 </span>
                 <h3 className="text-xl font-black text-[#0e2138]">
                   Complete Entry Fee Payment
                 </h3>
                 {paymentData.isSimulation ? (
-                  <div className="mt-1 px-3 py-1 bg-amber-50 border border-amber-200 rounded-lg text-amber-800 text-[11px] font-semibold inline-block">
-                    ⚠️ SIMULATED PAYMENT (TEST MODE) — NO REAL FUNDS WILL BE CHARGED
+                  <div className="mt-2 px-3 py-1.5 bg-amber-50 border-2 border-amber-300 rounded-xl text-amber-900 text-xs font-bold inline-block shadow-sm">
+                    ⚠️ SIMULATED PAYMENT — TEST MODE (NO REAL FUNDS CHARGED)
                   </div>
                 ) : (
                   <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
@@ -730,8 +730,8 @@ export function RegistrationModal({
                       <ShieldCheck size={12} /> {confirmedRegistration.paymentStatus || "PAID"}
                     </span>
                     {paymentData?.isSimulation && (
-                      <span className="text-[10px] font-bold text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded border border-amber-300">
-                        SIMULATED TEST
+                      <span className="text-[10px] font-bold text-amber-800 bg-amber-100 px-2 py-0.5 rounded border border-amber-300">
+                        SIMULATED PAYMENT — TEST MODE
                       </span>
                     )}
                   </div>
