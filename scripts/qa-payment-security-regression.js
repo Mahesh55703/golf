@@ -397,16 +397,16 @@ async function main() {
     }
     assert(forgeryRejected === true, "Forged signature safely blocked in production");
 
-    // 4B: Valid HMAC signature must succeed
+    const realPaymentId = `pay_real_${Date.now()}`;
     const validSignature = crypto
       .createHmac("sha256", testSecret)
-      .update(`${realOrderPayment.providerOrderId}|pay_real_987654`)
+      .update(`${realOrderPayment.providerOrderId}|${realPaymentId}`)
       .digest("hex");
 
     const genuineVerify = await simulateFinalizePaymentVerification(
       {
         orderId: realOrderPayment.providerOrderId,
-        paymentId: "pay_real_987654",
+        paymentId: realPaymentId,
         signature: validSignature,
       },
       { NODE_ENV: "production" },
