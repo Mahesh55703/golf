@@ -26,7 +26,19 @@ export async function POST(req: NextRequest) {
     }
 
     // 2. Body parsing and schema validation
-    const body = await req.json();
+    let body: unknown;
+    try {
+      body = await req.json();
+    } catch {
+      return NextResponse.json(
+        {
+          error: "INVALID_JSON",
+          message: "Request payload must be valid JSON.",
+        },
+        { status: 400 }
+      );
+    }
+
     const parseResult = contactFormSchema.safeParse(body);
 
     if (!parseResult.success) {
@@ -41,9 +53,8 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 3. Honeypot bot protection
+    // 3. Honeypot bot protection: if filled, quietly acknowledge without sending
     if (parseResult.data.honeypot && parseResult.data.honeypot.trim().length > 0) {
-      // Silently return success to bot without sending email
       return NextResponse.json({
         success: true,
         message: "Your message has been captured.",
@@ -54,12 +65,15 @@ export async function POST(req: NextRequest) {
     const sendResult = await sendContactEmail(parseResult.data);
 
     if (!sendResult.success) {
+      const status = sendResult.errorCode === "NOT_CONFIGURED" ? 503 : 502;
       return NextResponse.json(
         {
-          error: "DELIVERY_FAILURE",
-          message: "We encountered an issue transmitting your inquiry. Please try again or call section headquarters.",
+          error: sendResult.errorCode || "DELIVERY_FAILURE",
+          message:
+            sendResult.error ||
+            "We encountered an issue transmitting your inquiry. Please try again or call section headquarters.",
         },
-        { status: 502 }
+        { status }
       );
     }
 
@@ -70,7 +84,7 @@ export async function POST(req: NextRequest) {
       mockMode: sendResult.provider === "mock",
     });
   } catch (error) {
-    console.error("[Contact API Error]:", error);
+    console.error("[Contact API Error]:", error instanceof Error ? error.message : "Internal error");
     return NextResponse.json(
       {
         error: "INTERNAL_SERVER_ERROR",

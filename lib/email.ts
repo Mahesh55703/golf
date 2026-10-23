@@ -31,12 +31,20 @@ export interface EmailSendResult {
   provider: "resend" | "mock";
   id?: string;
   error?: string;
+  errorCode?: "NOT_CONFIGURED" | "UPSTREAM_ERROR" | "TRANSPORT_ERROR";
   deliveredToProvider: boolean;
 }
 
 /**
  * In-memory sliding window rate limiter for contact submissions per IP.
  * Enforces max 5 inquiries per 10-minute window.
+ *
+ * NOTE ON SERVERLESS EXECUTION (Vercel):
+ * This in-memory Map is maintained per serverless container instance.
+ * In production serverless environments with dynamic cold starts or multiple concurrent lambdas,
+ * state is isolated per instance. For global, shared distributed rate limiting across all regions,
+ * an external fast key-value store (such as Upstash Redis or Vercel KV) with credentials
+ * (UPSTASH_REDIS_REST_URL, UPSTASH_REDIS_REST_TOKEN) is the standard prerequisite.
  */
 interface RateLimitEntry {
   count: number;
@@ -78,24 +86,38 @@ export function resetContactRateLimitStore(): void {
 /**
  * Transactional email dispatcher for contact enquiries.
  * Uses Resend REST API via native fetch without heavy external dependencies.
- * If RESEND_API_KEY is not configured, safely defaults to simulated logging mode.
+ *
+ * Environment Policy:
+ * - In PRODUCTION (NODE_ENV === "production"), if RESEND_API_KEY is missing, it explicitly returns
+ *   a failure (success: false, errorCode: "NOT_CONFIGURED").
+ * - In DEVELOPMENT / TEST (NODE_ENV !== "production"), if RESEND_API_KEY is missing, it falls back
+ *   to mock mode for local testing.
+ * - Under NO circumstances are message bodies, sender emails, or secrets logged to terminal output.
  */
 export async function sendContactEmail(
   data: ContactFormData,
   mockFetch?: typeof fetch
 ): Promise<EmailSendResult> {
   const apiKey = process.env.RESEND_API_KEY;
+  const isProduction = process.env.NODE_ENV === "production";
   const toEmail = process.env.CONTACT_EMAIL_TO || "tournaments@golfpulse.com";
   const fromEmail = process.env.CONTACT_EMAIL_FROM || "GolfPulse Inquiries <onboarding@resend.dev>";
 
-  // If credentials are not configured, perform safe simulated queueing
+  // If credentials are not configured
   if (!apiKey) {
-    console.log("[Contact Service] RESEND_API_KEY not configured. Enquiry accepted in simulated development mode:", {
-      name: data.name,
-      email: data.email,
-      topic: data.topic,
-      timestamp: new Date().toISOString(),
-    });
+    if (isProduction) {
+      console.warn("[Contact Service] Email delivery blocked: RESEND_API_KEY is not configured in production.");
+      return {
+        success: false,
+        provider: "resend",
+        error: "Contact email service is not configured. Please contact tournament administration directly.",
+        errorCode: "NOT_CONFIGURED",
+        deliveredToProvider: false,
+      };
+    }
+
+    // In development or test mode, allow safe simulated queueing without logging sensitive payload content
+    console.log("[Contact Service] Development mode: RESEND_API_KEY not configured. Simulated dispatch completed.");
     return {
       success: true,
       provider: "mock",
@@ -136,12 +158,12 @@ export async function sendContactEmail(
     });
 
     if (!res.ok) {
-      const errBody = await res.text();
-      console.error("[Contact Service] Resend API error:", res.status, errBody);
+      console.error("[Contact Service] Resend API error status:", res.status);
       return {
         success: false,
         provider: "resend",
-        error: `Provider error: ${res.statusText}`,
+        error: `Provider delivery failed with status ${res.status}: ${res.statusText}`,
+        errorCode: "UPSTREAM_ERROR",
         deliveredToProvider: false,
       };
     }
@@ -160,6 +182,7 @@ export async function sendContactEmail(
       success: false,
       provider: "resend",
       error: errMsg,
+      errorCode: "TRANSPORT_ERROR",
       deliveredToProvider: false,
     };
   }
