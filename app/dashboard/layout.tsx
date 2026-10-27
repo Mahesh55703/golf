@@ -2,8 +2,6 @@ import React from "react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getCurrentGolfer } from "@/lib/golfer-auth";
-import { SiteHeader } from "@/components/site-header";
-import { SiteFooter } from "@/components/site-footer";
 import {
   LayoutDashboard,
   Trophy,
@@ -38,8 +36,6 @@ export default async function GolferDashboardLayout({
 
   return (
     <div className="min-h-screen bg-[#f6fbf4] text-slate-800 flex flex-col">
-      <SiteHeader />
-
       {/* Golfer Subheader Bar - Refined Lighter Header */}
       <section className="bg-white border-b border-slate-200/80 pt-6 pb-2 shadow-sm">
         <div className="container mx-auto px-4">
@@ -106,8 +102,6 @@ export default async function GolferDashboardLayout({
           {children}
         </div>
       </main>
-
-      <SiteFooter />
     </div>
   );
 }

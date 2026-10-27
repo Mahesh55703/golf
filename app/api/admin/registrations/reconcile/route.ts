@@ -79,6 +79,18 @@ export async function POST(req: NextRequest) {
           throw new Error("ALREADY_PAID: Registration is already marked as paid.");
         }
 
+        // Prevent attaching simulated payment tokens as external manual references
+        if (
+          externalReference &&
+          (externalReference.startsWith("pay_sim_") ||
+            externalReference.startsWith("order_sim_") ||
+            externalReference === "DEV_SIMULATED_SIGNATURE")
+        ) {
+          throw new Error(
+            "INVALID_REFERENCE: Simulated payment tokens cannot be used for administrative reconciliation."
+          );
+        }
+
         // Create or update manual payment record
         const payment = await tx.payment.create({
           data: {

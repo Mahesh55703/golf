@@ -8,17 +8,48 @@ import { deriveTournamentLifecycle } from "@/lib/tournament-lifecycle";
 export const PAYMENT_RESERVATION_TIMEOUT_MINUTES = 30;
 
 /**
+ * Checks whether the current deployment/runtime is strictly a Vercel Preview deployment.
+ * Never relies on NODE_ENV alone.
+ */
+export function isVercelPreviewEnvironment(): boolean {
+  return (
+    process.env.VERCEL === "1" &&
+    process.env.VERCEL_ENV === "preview"
+  );
+}
+
+/**
  * Checks whether simulated payment flow is permitted.
  * STRICT SECURITY INVARIANT:
- * - In production (NODE_ENV === "production"), payment simulation is completely disabled.
- * - In non-production environments, simulation is only allowed if explicitly opted in via
+ * - Production (process.env.VERCEL_ENV === "production" OR process.env.NODE_ENV === "production")
+ *   strictly and unconditionally forbids payment simulation regardless of any flags.
+ * - On Vercel Preview deployments, simulation is only allowed when explicitly opted in via
  *   ENABLE_PAYMENT_SIMULATION === "true".
+ * - On local development (non-Vercel, NODE_ENV === "development"), simulation is allowed only
+ *   when ENABLE_PAYMENT_SIMULATION === "true".
  */
 export function isPaymentSimulationAllowed(): boolean {
-  if (process.env.NODE_ENV === "production") {
+  // 1. Unconditional production kill-switch
+  if (process.env.VERCEL_ENV === "production" || process.env.NODE_ENV === "production") {
+    // Exception: If running in a Vercel Preview deployment, Vercel sets NODE_ENV=production,
+    // but VERCEL_ENV is explicitly "preview". Check that strictly.
+    if (isVercelPreviewEnvironment()) {
+      return process.env.ENABLE_PAYMENT_SIMULATION === "true";
+    }
     return false;
   }
-  return process.env.ENABLE_PAYMENT_SIMULATION === "true";
+
+  // 2. Vercel Preview deployment (when NODE_ENV is not production or any other state)
+  if (isVercelPreviewEnvironment()) {
+    return process.env.ENABLE_PAYMENT_SIMULATION === "true";
+  }
+
+  // 3. Local development environment
+  if (process.env.NODE_ENV === "development" && !process.env.VERCEL) {
+    return process.env.ENABLE_PAYMENT_SIMULATION === "true";
+  }
+
+  return false;
 }
 
 /**
@@ -29,19 +60,50 @@ export async function expireStalePendingRegistrations(tournamentId: string) {
   const expiryThreshold = new Date(Date.now() - PAYMENT_RESERVATION_TIMEOUT_MINUTES * 60 * 1000);
 
   // Find registrations that are PENDING and UNPAID and older than threshold
-  await prisma.registration.updateMany({
+  const staleRegistrations = await prisma.registration.findMany({
     where: {
       tournamentId,
       status: RegistrationStatus.PENDING,
       paymentStatus: PaymentStatus.UNPAID,
       registeredAt: { lt: expiryThreshold },
     },
-    data: {
-      status: RegistrationStatus.CANCELLED,
-      cancelledAt: new Date(),
-      notes: "Auto-cancelled: Registration checkout expired without payment.",
+    select: {
+      id: true,
+      golferId: true,
+      tournamentId: true,
     },
   });
+
+  for (const stale of staleRegistrations) {
+    try {
+      // Check if a CANCELLED record already exists for this (tournamentId, golferId)
+      // to avoid violating @@unique([tournamentId, golferId, status])
+      const existingCancelled = await prisma.registration.findFirst({
+        where: {
+          tournamentId: stale.tournamentId,
+          golferId: stale.golferId,
+          status: RegistrationStatus.CANCELLED,
+        },
+      });
+
+      if (existingCancelled) {
+        await prisma.registration.delete({
+          where: { id: stale.id },
+        });
+      } else {
+        await prisma.registration.update({
+          where: { id: stale.id },
+          data: {
+            status: RegistrationStatus.CANCELLED,
+            cancelledAt: new Date(),
+            notes: "Auto-cancelled: Registration checkout expired without payment.",
+          },
+        });
+      }
+    } catch (err) {
+      console.warn("[expireStalePendingRegistrations] Failed to expire registration:", stale.id, err);
+    }
+  }
 }
 
 /**
@@ -243,7 +305,9 @@ export async function finalizePaymentVerification(params: {
   const { orderId, paymentId, signature } = params;
 
   // 1. Production Security Enforcement: Block simulated values
-  if (process.env.NODE_ENV === "production" || !isPaymentSimulationAllowed()) {
+  // Simulation is only allowed if isPaymentSimulationAllowed() evaluates to true (Preview or local dev).
+  // In production or any non-simulation environment, any simulated tokens are strictly rejected.
+  if (!isPaymentSimulationAllowed()) {
     if (
       signature === "DEV_SIMULATED_SIGNATURE" ||
       orderId.startsWith("order_sim_") ||
@@ -281,8 +345,20 @@ export async function finalizePaymentVerification(params: {
       include: {
         registration: {
           include: {
-            tournament: true,
-            golfer: true,
+            tournament: {
+              select: { name: true, hostClub: { select: { name: true } } },
+            },
+            division: { select: { name: true } },
+            golfer: {
+              select: {
+                id: true,
+                firstName: true,
+                lastName: true,
+                email: true,
+                isEmailVerified: true,
+                passwordHash: true,
+              },
+            },
           },
         },
       },
@@ -341,7 +417,16 @@ export async function finalizePaymentVerification(params: {
           select: { name: true, hostClub: { select: { name: true } } },
         },
         division: { select: { name: true } },
-        golfer: { select: { firstName: true, lastName: true, email: true } },
+        golfer: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            email: true,
+            isEmailVerified: true,
+            passwordHash: true,
+          },
+        },
       },
     });
 
@@ -355,7 +440,7 @@ export async function finalizePaymentVerification(params: {
 
 export interface InitiateRefundInput {
   registrationId: string;
-  adminId: string;
+  adminId?: string;
   adminEmail: string;
   reason: string;
   amount?: number; // Major unit (e.g. 50.00). If omitted, full refund of remaining balance

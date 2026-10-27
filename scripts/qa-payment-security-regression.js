@@ -57,11 +57,32 @@ function toMinorUnits(amount, currency) {
 }
 
 // Mirroring isPaymentSimulationAllowed security logic
+function isVercelPreviewEnvironment(env = process.env) {
+  return env.VERCEL === "1" && env.VERCEL_ENV === "preview";
+}
+
 function isPaymentSimulationAllowed(env = process.env) {
-  if (env.NODE_ENV === "production") {
+  // 1. Unconditional production kill-switch
+  if (env.VERCEL_ENV === "production" || env.NODE_ENV === "production") {
+    // Exception: If running in a Vercel Preview deployment, Vercel sets NODE_ENV=production,
+    // but VERCEL_ENV is explicitly "preview".
+    if (isVercelPreviewEnvironment(env)) {
+      return env.ENABLE_PAYMENT_SIMULATION === "true";
+    }
     return false;
   }
-  return env.ENABLE_PAYMENT_SIMULATION === "true";
+
+  // 2. Vercel Preview deployment
+  if (isVercelPreviewEnvironment(env)) {
+    return env.ENABLE_PAYMENT_SIMULATION === "true";
+  }
+
+  // 3. Local development environment
+  if (env.NODE_ENV === "development" && !env.VERCEL) {
+    return env.ENABLE_PAYMENT_SIMULATION === "true";
+  }
+
+  return false;
 }
 
 // Logic mirror of initiateCheckout with security enforcement
@@ -172,7 +193,7 @@ async function simulateFinalizePaymentVerification(params, env = process.env, mo
   const { orderId, paymentId, signature } = params;
 
   // 1. Production Security Enforcement: Block simulated values
-  if (env.NODE_ENV === "production" || !isPaymentSimulationAllowed(env)) {
+  if (!isPaymentSimulationAllowed(env)) {
     if (
       signature === "DEV_SIMULATED_SIGNATURE" ||
       orderId.startsWith("order_sim_") ||
@@ -236,18 +257,45 @@ async function main() {
 
   try {
     console.log("[Test 1: Policy validation for isPaymentSimulationAllowed()]");
+    // Standard Production
     assert(
       isPaymentSimulationAllowed({ NODE_ENV: "production", ENABLE_PAYMENT_SIMULATION: "true" }) === false,
-      "Production blocks simulation even if ENABLE_PAYMENT_SIMULATION='true'"
+      "Standard Production blocks simulation even if ENABLE_PAYMENT_SIMULATION='true'"
     );
     assert(
       isPaymentSimulationAllowed({ NODE_ENV: "production", ENABLE_PAYMENT_SIMULATION: "false" }) === false,
-      "Production blocks simulation when ENABLE_PAYMENT_SIMULATION='false'"
+      "Standard Production blocks simulation when ENABLE_PAYMENT_SIMULATION='false'"
     );
     assert(
       isPaymentSimulationAllowed({ NODE_ENV: "production" }) === false,
-      "Production blocks simulation when ENABLE_PAYMENT_SIMULATION is undefined"
+      "Standard Production blocks simulation when ENABLE_PAYMENT_SIMULATION is undefined"
     );
+
+    // Vercel Production Environment (VERCEL=1, VERCEL_ENV=production, NODE_ENV=production)
+    assert(
+      isPaymentSimulationAllowed({ VERCEL: "1", VERCEL_ENV: "production", NODE_ENV: "production", ENABLE_PAYMENT_SIMULATION: "true" }) === false,
+      "Vercel Production strictly blocks simulation even with ENABLE_PAYMENT_SIMULATION='true'"
+    );
+    assert(
+      isPaymentSimulationAllowed({ VERCEL: "1", VERCEL_ENV: "production", NODE_ENV: "production" }) === false,
+      "Vercel Production strictly blocks simulation by default"
+    );
+
+    // Vercel Preview Environment (VERCEL=1, VERCEL_ENV=preview, NODE_ENV=production)
+    assert(
+      isPaymentSimulationAllowed({ VERCEL: "1", VERCEL_ENV: "preview", NODE_ENV: "production", ENABLE_PAYMENT_SIMULATION: "true" }) === true,
+      "Vercel Preview allows simulation when explicitly ENABLE_PAYMENT_SIMULATION='true' (despite NODE_ENV=production)"
+    );
+    assert(
+      isPaymentSimulationAllowed({ VERCEL: "1", VERCEL_ENV: "preview", NODE_ENV: "production", ENABLE_PAYMENT_SIMULATION: "false" }) === false,
+      "Vercel Preview blocks simulation when ENABLE_PAYMENT_SIMULATION='false'"
+    );
+    assert(
+      isPaymentSimulationAllowed({ VERCEL: "1", VERCEL_ENV: "preview", NODE_ENV: "production" }) === false,
+      "Vercel Preview blocks simulation by default when ENABLE_PAYMENT_SIMULATION undefined"
+    );
+
+    // Local Development Environment
     assert(
       isPaymentSimulationAllowed({ NODE_ENV: "development" }) === false,
       "Development defaults to blocking simulation if flag undefined"
@@ -259,6 +307,16 @@ async function main() {
     assert(
       isPaymentSimulationAllowed({ NODE_ENV: "development", ENABLE_PAYMENT_SIMULATION: "true" }) === true,
       "Development allows simulation only when explicitly ENABLE_PAYMENT_SIMULATION='true'"
+    );
+
+    // Attack Vectors & Ambiguous States
+    assert(
+      isPaymentSimulationAllowed({ VERCEL: "1", VERCEL_ENV: "", NODE_ENV: "production", ENABLE_PAYMENT_SIMULATION: "true" }) === false,
+      "Vercel with empty VERCEL_ENV strictly blocks simulation"
+    );
+    assert(
+      isPaymentSimulationAllowed({ VERCEL: "0", VERCEL_ENV: "preview", NODE_ENV: "production", ENABLE_PAYMENT_SIMULATION: "true" }) === false,
+      "Forged VERCEL_ENV without VERCEL=1 strictly blocks simulation"
     );
 
     console.log("\n[Setup: Creating isolated test tournament & golfer profiles]");
@@ -482,10 +540,11 @@ async function main() {
     assert(simCheckout.isSimulation === true, "Checkout returns isSimulation: true in dev with flag enabled");
     assert(simCheckout.orderId.startsWith("order_sim_"), "Order ID is order_sim_ in simulation");
 
+    const simPaymentId = `pay_sim_valid_${Date.now()}`;
     const simVerify = await simulateFinalizePaymentVerification(
       {
         orderId: simCheckout.orderId,
-        paymentId: "pay_sim_valid123",
+        paymentId: simPaymentId,
         signature: "DEV_SIMULATED_SIGNATURE",
       },
       { NODE_ENV: "development", ENABLE_PAYMENT_SIMULATION: "true" },
@@ -581,6 +640,77 @@ async function main() {
     assert(retryVerify.registration.status === RegistrationStatus.CONFIRMED, "Registration transitioned to CONFIRMED on retry");
     assert(retryVerify.registration.paymentStatus === PaymentStatus.PAID, "Registration transitioned to PAID on retry");
 
+    console.log("\n[Test 8: Vercel Preview simulation vs Production rejection]");
+    // 8A: Verify preview simulation works end-to-end
+    const testGolferPreview = await prisma.golferProfile.create({
+      data: {
+        firstName: "SecPreview",
+        lastName: "Golfer",
+        email: `sec.preview.${Date.now()}@golfpulse.test`,
+        country: "India",
+      },
+    });
+
+    const previewRegistration = await prisma.registration.create({
+      data: {
+        referenceNumber: `GP-PRV-${Date.now().toString().slice(-5)}`,
+        tournamentId: testTournament.id,
+        golferId: testGolferPreview.id,
+        status: RegistrationStatus.PENDING,
+        paymentStatus: PaymentStatus.UNPAID,
+        entryFeePaid: 0,
+        currency: "USD",
+      },
+    });
+
+    const previewEnv = {
+      VERCEL: "1",
+      VERCEL_ENV: "preview",
+      NODE_ENV: "production",
+      ENABLE_PAYMENT_SIMULATION: "true",
+    };
+
+    const previewCheckout = await simulateInitiateCheckout(previewRegistration.id, previewEnv, false);
+    assert(previewCheckout.isSimulation === true, "Preview checkout successfully issues simulation order when flag=true");
+    assert(previewCheckout.orderId.startsWith("order_sim_"), "Preview checkout orderId starts with order_sim_");
+
+    const previewPaymentId = `pay_sim_preview_${Date.now()}`;
+    const previewVerify = await simulateFinalizePaymentVerification(
+      {
+        orderId: previewCheckout.orderId,
+        paymentId: previewPaymentId,
+        signature: "DEV_SIMULATED_SIGNATURE",
+      },
+      previewEnv,
+      false
+    );
+    assert(previewVerify.payment.status === TransactionStatus.SUCCESS, "Preview verification succeeds with simulation tokens");
+    assert(previewVerify.registration.status === RegistrationStatus.CONFIRMED, "Preview registration confirmed");
+
+    // 8B: Verify Vercel Production strictly rejects the exact same simulated verification even with flag=true
+    let prodSimulationCaught = false;
+    const prodEnv = {
+      VERCEL: "1",
+      VERCEL_ENV: "production",
+      NODE_ENV: "production",
+      ENABLE_PAYMENT_SIMULATION: "true",
+    };
+    try {
+      await simulateFinalizePaymentVerification(
+        {
+          orderId: previewCheckout.orderId,
+          paymentId: previewPaymentId,
+          signature: "DEV_SIMULATED_SIGNATURE",
+        },
+        prodEnv,
+        false
+      );
+    } catch (err) {
+      prodSimulationCaught = true;
+      assert(err.message.includes("Payment simulation is strictly prohibited in production"), "Production rejected preview simulation tokens");
+    }
+    assert(prodSimulationCaught === true, "Production blocked simulation tokens even when ENABLE_PAYMENT_SIMULATION='true'");
+
     // Clean up test fixtures
     console.log("\n[Cleanup: Removing test fixtures cleanly]");
     await prisma.payment.deleteMany({
@@ -598,7 +728,7 @@ async function main() {
     await prisma.tournament.deleteMany({
       where: { id: { in: [testTournament.id, freeTournament.id] } },
     });
-    await prisma.golferProfile.deleteMany({ where: { id: { in: [testGolfer.id, testGolferSim.id, testGolferRetry.id] } } });
+    await prisma.golferProfile.deleteMany({ where: { id: { in: [testGolfer.id, testGolferSim.id, testGolferRetry.id, testGolferPreview.id] } } });
 
     console.log("  ✓ All isolated security QA fixtures cleaned up cleanly.");
 

@@ -28,10 +28,43 @@ export async function POST(req: NextRequest) {
       signature,
     });
 
+    const reg = result.registration as any;
+    const golferName = reg.golfer
+      ? `${reg.golfer.firstName} ${reg.golfer.lastName}`.trim()
+      : "";
+    const golferEmail = reg.golfer?.email || "";
+    const isActivated = Boolean(reg.golfer?.isEmailVerified && reg.golfer?.passwordHash);
+
     return NextResponse.json({
       success: true,
       message: "Payment successfully verified and registration confirmed.",
-      registration: result.registration,
+      registration: {
+        id: reg.id,
+        referenceNumber: reg.referenceNumber,
+        status: reg.status,
+        paymentStatus: reg.paymentStatus,
+        entryFee: Number(reg.entryFeePaid ?? 0),
+        currency: reg.currency,
+        tournamentName: reg.tournament?.name || "",
+        hostClub: reg.tournament?.hostClub?.name || "Host Club",
+        divisionName: reg.division?.name || "Open Championship",
+        golferId: reg.golfer?.id,
+        golferName,
+        golferEmail,
+        isActivated,
+        registeredAt: reg.registeredAt,
+        tournament: reg.tournament,
+        division: reg.division,
+        golfer: reg.golfer
+          ? {
+              id: reg.golfer.id,
+              firstName: reg.golfer.firstName,
+              lastName: reg.golfer.lastName,
+              email: reg.golfer.email,
+              isEmailVerified: reg.golfer.isEmailVerified,
+            }
+          : undefined,
+      },
       payment: {
         referenceNumber: result.payment.referenceNumber,
         status: result.payment.status,
