@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
+import Link from "next/link";
 import {
   Trophy,
   Calendar,
@@ -82,22 +83,49 @@ export function RegistrationModal({
   const [activationRequested, setActivationRequested] = useState(false);
   const [requestingActivation, setRequestingActivation] = useState(false);
   const [activationMessage, setActivationMessage] = useState<string | null>(null);
+  const [activationError, setActivationError] = useState<string | null>(null);
+  const [previewActivationLink, setPreviewActivationLink] = useState<string | null>(null);
 
   const handleRequestActivation = async () => {
-    if (!confirmedRegistration?.golferEmail) return;
+    if (requestingActivation || activationRequested) return;
+
+    const emailToActivate =
+      confirmedRegistration?.golferEmail ||
+      confirmedRegistration?.golfer?.email ||
+      createdRegistration?.golferEmail ||
+      formData.email?.trim();
+
+    if (!emailToActivate) {
+      setActivationError("Unable to identify golfer email. Please activate via Player Portal.");
+      return;
+    }
+
     setRequestingActivation(true);
+    setActivationError(null);
     setActivationMessage(null);
+    setPreviewActivationLink(null);
+
     try {
       const res = await fetch("/api/golfer/auth/activate/request", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: confirmedRegistration.golferEmail }),
+        body: JSON.stringify({ email: emailToActivate }),
       });
+
       const data = await res.json();
+
+      if (!res.ok) {
+        setActivationError(data.error || "Failed to send activation email. Please try again.");
+        return;
+      }
+
       setActivationRequested(true);
       setActivationMessage(data.message || "Activation link sent! Check your email inbox.");
+      if (data.activationLink) {
+        setPreviewActivationLink(data.activationLink);
+      }
     } catch {
-      setActivationMessage("Failed to send activation email. You can activate anytime via Player Portal.");
+      setActivationError("Network error while requesting activation. Please try again.");
     } finally {
       setRequestingActivation(false);
     }
@@ -690,103 +718,178 @@ export function RegistrationModal({
             </div>
           )}
 
-          {step === "success" && confirmedRegistration && (
-            <div className="space-y-5 text-center py-4">
-              <div className="w-16 h-16 mx-auto rounded-full bg-emerald-50 text-emerald-600 border border-emerald-200 flex items-center justify-center">
-                <CheckCircle2 size={36} />
-              </div>
+          {step === "success" && (confirmedRegistration || createdRegistration) && (() => {
+            const activeReg = confirmedRegistration || createdRegistration;
+            const golferDisplayName =
+              activeReg?.golferName ||
+              (activeReg?.golfer ? `${activeReg.golfer.firstName} ${activeReg.golfer.lastName}`.trim() : null) ||
+              `${formData.firstName} ${formData.lastName}`.trim();
+            const divisionDisplayName =
+              activeReg?.divisionName ||
+              activeReg?.division?.name ||
+              selectedDivision?.name ||
+              "Open Championship";
+            const tournamentDisplayName =
+              activeReg?.tournamentName ||
+              activeReg?.tournament?.name ||
+              tournament.name;
+            const targetGolferEmail =
+              activeReg?.golferEmail ||
+              activeReg?.golfer?.email ||
+              formData.email?.trim();
+            const isAlreadyActivated = Boolean(
+              activeReg?.isActivated ?? createdRegistration?.isActivated
+            );
 
-              <div>
-                <span className="text-xs font-bold text-emerald-700 uppercase tracking-widest block mb-1">
-                  Registration Confirmed!
-                </span>
-                <h3 className="text-xl font-black text-slate-900">
-                  Welcome to {confirmedRegistration.tournamentName || tournament.name}
-                </h3>
-                <p className="text-xs text-slate-500 mt-1">
-                  Your entry is securely confirmed and verified in GolfPulse.
-                </p>
-              </div>
+            return (
+              <div className="space-y-5 text-center py-4">
+                <div className="w-16 h-16 mx-auto rounded-full bg-emerald-50 text-emerald-600 border border-emerald-200 flex items-center justify-center">
+                  <CheckCircle2 size={36} />
+                </div>
 
-              <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 max-w-sm mx-auto text-left text-xs space-y-2">
-                <div className="flex items-center justify-between pb-2 border-b border-slate-200">
-                  <span className="text-slate-500">Reference Number</span>
-                  <span className="font-mono font-black text-slate-900 text-sm">
-                    {confirmedRegistration.referenceNumber}
+                <div>
+                  <span className="text-xs font-bold text-emerald-700 uppercase tracking-widest block mb-1">
+                    Registration Confirmed!
                   </span>
-                </div>
-                <div className="flex items-center justify-between pb-2 border-b border-slate-200">
-                  <span className="text-slate-500">Golfer</span>
-                  <span className="font-bold text-slate-900">{confirmedRegistration.golferName}</span>
-                </div>
-                <div className="flex items-center justify-between pb-2 border-b border-slate-200">
-                  <span className="text-slate-500">Division</span>
-                  <span className="font-bold text-slate-900">{confirmedRegistration.divisionName}</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-slate-500">Payment Status</span>
-                  <div className="flex items-center gap-1.5">
-                    <span className="inline-flex items-center gap-1 font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
-                      <ShieldCheck size={12} /> {confirmedRegistration.paymentStatus || "PAID"}
-                    </span>
-                    {paymentData?.isSimulation && (
-                      <span className="text-[10px] font-bold text-amber-800 bg-amber-100 px-2 py-0.5 rounded border border-amber-300">
-                        SIMULATED PAYMENT — TEST MODE
-                      </span>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              {/* Optional Account Activation CTA */}
-              <div className="p-4 rounded-2xl bg-[#0e2138]/5 border border-[#c29b4e]/30 max-w-sm mx-auto text-left text-xs space-y-2">
-                <div className="flex items-start gap-2">
-                  <div className="p-1 rounded-md bg-[#c29b4e]/20 text-[#c29b4e] mt-0.5">
-                    <Trophy size={14} />
-                  </div>
-                  <div>
-                    <h4 className="font-bold text-slate-900">Track your tournament & performance</h4>
-                    <p className="text-[11px] text-slate-500 mt-0.5">
-                      Create your GolfPulse account to view all registrations, scorecards, and live leaderboards.
-                    </p>
-                  </div>
-                </div>
-
-                {activationMessage && (
-                  <p className="text-[11px] font-medium text-emerald-700 bg-emerald-50 p-2 rounded-lg border border-emerald-200">
-                    {activationMessage}
+                  <h3 className="text-xl font-black text-slate-900">
+                    Welcome to {tournamentDisplayName}
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-1">
+                    Your entry is securely confirmed and verified in GolfPulse.
                   </p>
-                )}
+                </div>
 
-                {!activationRequested && (
+                <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 max-w-sm mx-auto text-left text-xs space-y-2">
+                  <div className="flex items-center justify-between pb-2 border-b border-slate-200">
+                    <span className="text-slate-500">Reference Number</span>
+                    <span className="font-mono font-black text-slate-900 text-sm">
+                      {activeReg.referenceNumber}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between pb-2 border-b border-slate-200">
+                    <span className="text-slate-500">Golfer</span>
+                    <span className="font-bold text-slate-900">{golferDisplayName}</span>
+                  </div>
+                  <div className="flex items-center justify-between pb-2 border-b border-slate-200">
+                    <span className="text-slate-500">Division</span>
+                    <span className="font-bold text-slate-900">{divisionDisplayName}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-500">Payment Status</span>
+                    <div className="flex items-center gap-1.5">
+                      <span className="inline-flex items-center gap-1 font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                        <ShieldCheck size={12} /> {activeReg.paymentStatus || "PAID"}
+                      </span>
+                      {paymentData?.isSimulation && (
+                        <span className="text-[10px] font-bold text-amber-800 bg-amber-100 px-2 py-0.5 rounded border border-amber-300">
+                          SIMULATED PAYMENT — TEST MODE
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Account Activation CTA */}
+                <div className="p-4 rounded-2xl bg-[#0e2138]/5 border border-[#c29b4e]/30 max-w-sm mx-auto text-left text-xs space-y-2.5">
+                  <div className="flex items-start gap-2">
+                    <div className="p-1 rounded-md bg-[#c29b4e]/20 text-[#c29b4e] mt-0.5 shrink-0">
+                      <Trophy size={14} />
+                    </div>
+                    <div>
+                      <h4 className="font-bold text-slate-900">Track your tournament & performance</h4>
+                      <p className="text-[11px] text-slate-500 mt-0.5 leading-relaxed">
+                        {isAlreadyActivated
+                          ? "Your GolfPulse player account is active. Sign in to view this entry, your scorecards, and live leaderboards."
+                          : "Activate your GolfPulse account to view all registrations, submit scorecards, and track live tournament leaderboards."}
+                      </p>
+                    </div>
+                  </div>
+
+                  {isAlreadyActivated ? (
+                    <Link
+                      href={`/login?email=${encodeURIComponent(targetGolferEmail || "")}`}
+                      className="w-full mt-2 py-2 px-3 rounded-xl bg-gradient-to-r from-[#c29b4e] to-[#dfbf77] text-[#0e2138] font-bold text-xs flex items-center justify-center gap-1.5 hover:brightness-105 active:scale-95 transition-all text-center shadow-xs"
+                    >
+                      <span>Sign In to Player Portal</span>
+                      <ArrowRight size={13} />
+                    </Link>
+                  ) : (
+                    <>
+                      {activationError && (
+                        <div className="p-2.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-[11px] font-medium flex items-center gap-2">
+                          <AlertCircle size={14} className="text-rose-600 shrink-0" />
+                          <span>{activationError}</span>
+                        </div>
+                      )}
+
+                      {activationMessage && (
+                        <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-[11px] space-y-2">
+                          <div className="flex items-center gap-1.5 font-bold">
+                            <CheckCircle2 size={14} className="text-emerald-600 shrink-0" />
+                            <span>{activationMessage}</span>
+                          </div>
+                          <p className="text-[10px] text-emerald-700 leading-relaxed">
+                            Follow the link in your email to set a secure password and enter your player dashboard.
+                          </p>
+                          {previewActivationLink && (
+                            <div className="pt-1">
+                              <a
+                                href={previewActivationLink}
+                                className="inline-flex items-center gap-1 text-xs font-bold text-[#0e2138] bg-[#c29b4e]/30 hover:bg-[#c29b4e]/40 px-3 py-1.5 rounded-lg border border-[#c29b4e]/50 transition-colors"
+                              >
+                                <span>Complete Activation Now (Preview Sandbox)</span>
+                                <ArrowRight size={12} />
+                              </a>
+                            </div>
+                          )}
+                          <div className="pt-0.5">
+                            <Link
+                              href={`/activate?email=${encodeURIComponent(targetGolferEmail || "")}`}
+                              className="text-[11px] font-bold text-emerald-900 hover:underline inline-flex items-center gap-1"
+                            >
+                              Have an activation code? Enter it here →
+                            </Link>
+                          </div>
+                        </div>
+                      )}
+
+                      {!activationRequested && (
+                        <button
+                          type="button"
+                          onClick={handleRequestActivation}
+                          disabled={requestingActivation}
+                          aria-busy={requestingActivation}
+                          aria-label="Activate GolfPulse Account"
+                          className="w-full mt-2 py-2.5 px-3 rounded-xl bg-gradient-to-r from-[#c29b4e] to-[#dfbf77] text-[#0e2138] font-bold text-xs flex items-center justify-center gap-1.5 hover:brightness-105 active:scale-95 transition-all disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed shadow-xs"
+                        >
+                          {requestingActivation ? (
+                            <>
+                              <Loader2 size={13} className="animate-spin text-[#0e2138]" />
+                              <span>Sending Activation Link...</span>
+                            </>
+                          ) : (
+                            <>
+                              <span>Activate GolfPulse Account</span>
+                              <ArrowRight size={13} />
+                            </>
+                          )}
+                        </button>
+                      )}
+                    </>
+                  )}
+                </div>
+
+                <div className="pt-4 border-t border-slate-100 flex items-center justify-center gap-3">
                   <button
-                    type="button"
-                    onClick={handleRequestActivation}
-                    disabled={requestingActivation}
-                    className="w-full mt-2 py-2 px-3 rounded-xl bg-gradient-to-r from-[#c29b4e] to-[#dfbf77] text-[#0e2138] font-bold text-xs flex items-center justify-center gap-1.5 hover:brightness-105 active:scale-95 transition-all disabled:opacity-50"
+                    onClick={onClose}
+                    className="px-6 py-2.5 rounded-xl bg-[#0e2138] text-white font-bold text-xs hover:bg-[#1a365d] active:scale-95 transition-all shadow-sm"
                   >
-                    {requestingActivation ? (
-                      <Loader2 size={13} className="animate-spin" />
-                    ) : (
-                      <>
-                        <span>Activate GolfPulse Account</span>
-                        <ArrowRight size={13} />
-                      </>
-                    )}
+                    Done
                   </button>
-                )}
+                </div>
               </div>
-
-              <div className="pt-4 border-t border-slate-100 flex items-center justify-center gap-3">
-                <button
-                  onClick={onClose}
-                  className="px-6 py-2.5 rounded-xl bg-[#0e2138] text-white font-bold text-xs hover:bg-[#1a365d] active:scale-95 transition-all shadow-sm"
-                >
-                  Done
-                </button>
-              </div>
-            </div>
-          )}
+            );
+          })()}
         </div>
       </div>
     </div>

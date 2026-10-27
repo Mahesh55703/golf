@@ -3,7 +3,7 @@ import crypto from "crypto";
 import { SignJWT, jwtVerify } from "jose";
 import { cookies } from "next/headers";
 import { prisma } from "./prisma";
-import { sendContactEmail } from "./email";
+import { sendContactEmail, sendTransactionalEmail, isVercelPreviewEnvironment } from "./email";
 
 const GOLFER_JWT_SECRET = new TextEncoder().encode(
   process.env.GOLFER_JWT_SECRET || process.env.ADMIN_JWT_SECRET || "golfpulse-golfer-secure-session-key-2026-production"
@@ -184,7 +184,7 @@ export async function requestGolferActivation(email: string, baseUrl: string) {
     where: { golferId: golfer.id, usedAt: null },
   });
 
-  await prisma.golferActivationToken.create({
+  const createdToken = await prisma.golferActivationToken.create({
     data: {
       tokenHash,
       golferId: golfer.id,
@@ -195,23 +195,40 @@ export async function requestGolferActivation(email: string, baseUrl: string) {
 
   const activationLink = `${baseUrl.replace(/\/$/, "")}/activate?token=${rawToken}&email=${encodeURIComponent(normalizedEmail)}`;
 
-  // Send transactional email
-  try {
-    await sendContactEmail({
-      name: `${golfer.firstName} ${golfer.lastName}`.trim(),
-      email: normalizedEmail,
-      topic: "GolfPulse Account Activation",
-      message: `Hello ${golfer.firstName},\n\nPlease activate your GolfPulse account to manage your tournament registrations, track official scorecards, and monitor performance analytics.\n\nActivation Link: ${activationLink}\n\nThis single-use link expires in 24 hours. If you did not request this, you can safely ignore this email.`,
-    });
-  } catch (err) {
-    console.error("Failed to dispatch activation email:", err);
+  const isNonProdOrPreview = process.env.NODE_ENV !== "production" || isVercelPreviewEnvironment();
+
+  // Send transactional email directly to golfer
+  const emailResult = await sendTransactionalEmail({
+    to: normalizedEmail,
+    name: `${golfer.firstName} ${golfer.lastName}`.trim(),
+    subject: "GolfPulse Account Activation",
+    text: `Hello ${golfer.firstName},\n\nPlease activate your GolfPulse account to manage your tournament registrations, track official scorecards, and monitor performance analytics.\n\nActivation Link: ${activationLink}\n\nThis single-use link expires in 24 hours. If you did not request this, you can safely ignore this email.`,
+  });
+
+  if (!emailResult.success) {
+    if (!isNonProdOrPreview) {
+      await prisma.golferActivationToken.delete({ where: { id: createdToken.id } }).catch(() => {});
+      return {
+        success: false,
+        error: "Unable to deliver activation email at this time. Please contact tournament administration.",
+      };
+    }
+
+    console.warn("[Activation] Transactional email provider rejected dispatch in preview/dev:", emailResult.error);
+    return {
+      success: true,
+      emailDelivered: false,
+      message: "Activation link generated. In Preview sandbox mode, click the direct activation button below to proceed.",
+      debugToken: rawToken,
+      activationLink,
+    };
   }
 
   return {
     success: true,
-    message: "If an account or registration exists with this email, an activation link has been sent.",
-    // Return token in dev/test for automated testing convenience
-    ...(process.env.NODE_ENV !== "production" ? { debugToken: rawToken, activationLink } : {}),
+    emailDelivered: true,
+    message: "Activation link sent! Check your email inbox to complete your account activation.",
+    ...(isNonProdOrPreview ? { debugToken: rawToken, activationLink } : {}),
   };
 }
 
@@ -303,12 +320,14 @@ export async function requestGolferPasswordReset(email: string, baseUrl: string)
 
   const resetLink = `${baseUrl.replace(/\/$/, "")}/forgot-password?token=${rawToken}&email=${encodeURIComponent(normalizedEmail)}`;
 
+  const isNonProdOrPreview = process.env.NODE_ENV !== "production" || isVercelPreviewEnvironment();
+
   try {
-    await sendContactEmail({
+    await sendTransactionalEmail({
+      to: normalizedEmail,
       name: `${golfer.firstName} ${golfer.lastName}`.trim(),
-      email: normalizedEmail,
-      topic: "GolfPulse Password Reset",
-      message: `Hello ${golfer.firstName},\n\nA password reset request was received for your GolfPulse account.\n\nReset Link: ${resetLink}\n\nThis link will expire in 2 hours. If you did not make this request, please disregard this email.`,
+      subject: "GolfPulse Password Reset",
+      text: `Hello ${golfer.firstName},\n\nA password reset request was received for your GolfPulse account.\n\nReset Link: ${resetLink}\n\nThis link will expire in 2 hours. If you did not make this request, please disregard this email.`,
     });
   } catch (err) {
     console.error("Failed to dispatch password reset email:", err);
@@ -317,7 +336,7 @@ export async function requestGolferPasswordReset(email: string, baseUrl: string)
   return {
     success: true,
     message: "If a verified account exists for this email, password reset instructions have been sent.",
-    ...(process.env.NODE_ENV !== "production" ? { debugToken: rawToken, resetLink } : {}),
+    ...(isNonProdOrPreview ? { debugToken: rawToken, resetLink } : {}),
   };
 }
 

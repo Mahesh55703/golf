@@ -249,9 +249,12 @@ export async function POST(req: NextRequest) {
           },
           golfer: {
             select: {
+              id: true,
               firstName: true,
               lastName: true,
               email: true,
+              isEmailVerified: true,
+              passwordHash: true,
             },
           },
         },
@@ -280,8 +283,10 @@ export async function POST(req: NextRequest) {
         tournamentName: reg.tournament.name,
         hostClub: reg.tournament.hostClub?.name || "Host Club",
         divisionName: reg.division?.name || "Open Championship",
-        golferName: `${reg.golfer.firstName} ${reg.golfer.lastName}`,
+        golferId: reg.golfer.id,
+        golferName: `${reg.golfer.firstName} ${reg.golfer.lastName}`.trim(),
         golferEmail: reg.golfer.email,
+        isActivated: Boolean(reg.golfer.isEmailVerified && reg.golfer.passwordHash),
         registeredAt: reg.registeredAt,
       },
     });

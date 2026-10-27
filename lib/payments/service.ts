@@ -314,8 +314,20 @@ export async function finalizePaymentVerification(params: {
       include: {
         registration: {
           include: {
-            tournament: true,
-            golfer: true,
+            tournament: {
+              select: { name: true, hostClub: { select: { name: true } } },
+            },
+            division: { select: { name: true } },
+            golfer: {
+              select: {
+                id: true,
+                firstName: true,
+                lastName: true,
+                email: true,
+                isEmailVerified: true,
+                passwordHash: true,
+              },
+            },
           },
         },
       },
@@ -374,7 +386,16 @@ export async function finalizePaymentVerification(params: {
           select: { name: true, hostClub: { select: { name: true } } },
         },
         division: { select: { name: true } },
-        golfer: { select: { firstName: true, lastName: true, email: true } },
+        golfer: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            email: true,
+            isEmailVerified: true,
+            passwordHash: true,
+          },
+        },
       },
     });
 
