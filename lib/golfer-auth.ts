@@ -40,6 +40,15 @@ export function generateSecureToken(): string {
   return crypto.randomBytes(32).toString("hex");
 }
 
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
 /**
  * Creates an authenticated session for a golfer and sets the HTTP-only cookie.
  */
@@ -197,15 +206,34 @@ export async function requestGolferActivation(email: string, baseUrl: string) {
 
   const isNonProdOrPreview = process.env.NODE_ENV !== "production" || isVercelPreviewEnvironment();
 
+  const emailHtml = `
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 8px;">
+      <div style="text-align: center; margin-bottom: 24px;">
+        <h2 style="color: #0e2138; margin: 0; font-size: 22px; font-weight: 700;">GolfPulse Account Activation</h2>
+      </div>
+      <p style="color: #334155; font-size: 15px; line-height: 24px;">Hello <strong>${escapeHtml(golfer.firstName)}</strong>,</p>
+      <p style="color: #334155; font-size: 15px; line-height: 24px;">Please activate your GolfPulse account to view tournament entries, track official scorecards, and monitor your tournament leaderboard ranking.</p>
+      <div style="text-align: center; margin: 32px 0;">
+        <a href="${activationLink}" style="background-color: #059669; color: #ffffff; padding: 14px 28px; font-size: 15px; font-weight: 600; text-decoration: none; border-radius: 8px; display: inline-block;">
+          Activate GolfPulse Account &rarr;
+        </a>
+      </div>
+      <p style="color: #64748b; font-size: 13px; line-height: 20px;">Or copy and paste this link into your browser:<br/><a href="${activationLink}" style="color: #059669; word-break: break-all;">${activationLink}</a></p>
+      <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 24px 0;" />
+      <p style="color: #94a3b8; font-size: 12px; margin: 0;">This single-use activation link expires in 24 hours. If you did not request this, you can safely ignore this email.</p>
+    </div>
+  `;
+
   // Send transactional email directly to golfer
   const emailResult = await sendTransactionalEmail({
     to: normalizedEmail,
     name: `${golfer.firstName} ${golfer.lastName}`.trim(),
     subject: "GolfPulse Account Activation",
     text: `Hello ${golfer.firstName},\n\nPlease activate your GolfPulse account to manage your tournament registrations, track official scorecards, and monitor performance analytics.\n\nActivation Link: ${activationLink}\n\nThis single-use link expires in 24 hours. If you did not request this, you can safely ignore this email.`,
+    html: emailHtml,
   });
 
-  if (!emailResult.success) {
+  if (!emailResult.success || !emailResult.deliveredToProvider) {
     if (!isNonProdOrPreview) {
       await prisma.golferActivationToken.delete({ where: { id: createdToken.id } }).catch(() => {});
       return {
@@ -214,11 +242,11 @@ export async function requestGolferActivation(email: string, baseUrl: string) {
       };
     }
 
-    console.warn("[Activation] Transactional email provider rejected dispatch in preview/dev:", emailResult.error);
+    console.warn("[Activation] Transactional email provider did not deliver email in preview/dev:", emailResult.error || "Mock provider used");
     return {
       success: true,
       emailDelivered: false,
-      message: "Activation link generated. In Preview sandbox mode, click the direct activation button below to proceed.",
+      message: "Activation link generated for Preview Sandbox. Click the button below to complete activation.",
       debugToken: rawToken,
       activationLink,
     };
