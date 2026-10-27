@@ -823,33 +823,60 @@ export function RegistrationModal({
                       )}
 
                       {activationMessage && (
-                        <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-[11px] space-y-2">
-                          <div className="flex items-center gap-1.5 font-bold">
-                            <CheckCircle2 size={14} className="text-emerald-600 shrink-0" />
-                            <span>{activationMessage}</span>
+                        <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 text-[11px] space-y-3">
+                          <div className="flex items-center gap-1.5 font-bold text-emerald-800">
+                            <CheckCircle2 size={15} className="text-emerald-600 shrink-0" />
+                            <span>{previewActivationLink ? "Activation Link Ready (Preview Sandbox)" : activationMessage}</span>
                           </div>
-                          <p className="text-[10px] text-emerald-700 leading-relaxed">
-                            Follow the link in your email to set a secure password and enter your player dashboard.
-                          </p>
-                          {previewActivationLink && (
-                            <div className="pt-1">
-                              <a
-                                href={previewActivationLink}
-                                className="inline-flex items-center gap-1 text-xs font-bold text-[#0e2138] bg-[#c29b4e]/30 hover:bg-[#c29b4e]/40 px-3 py-1.5 rounded-lg border border-[#c29b4e]/50 transition-colors"
-                              >
-                                <span>Complete Activation Now (Preview Sandbox)</span>
-                                <ArrowRight size={12} />
-                              </a>
-                            </div>
+
+                          {previewActivationLink ? (
+                            <>
+                              <p className="text-[10px] text-emerald-700 leading-relaxed">
+                                In Preview Sandbox, corporate email security filters (e.g. <code>@cisinlabs.com</code>) routinely quarantine test emails containing <code>vercel.app</code> links. Click the button below to complete activation directly:
+                              </p>
+                              <div>
+                                <a
+                                  href={previewActivationLink}
+                                  className="w-full py-2.5 px-3 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-sm active:scale-95 transition-all text-center cursor-pointer"
+                                >
+                                  <span>Complete Account Activation (Preview Sandbox)</span>
+                                  <ArrowRight size={13} />
+                                </a>
+                              </div>
+                              <div className="flex items-center justify-between pt-1 border-t border-emerald-200/60 text-[10px] text-emerald-800">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    navigator.clipboard.writeText(previewActivationLink);
+                                    alert("Activation link copied to clipboard!");
+                                  }}
+                                  className="hover:underline font-semibold text-emerald-800 flex items-center gap-1 cursor-pointer"
+                                >
+                                  📋 Copy Activation Link
+                                </button>
+                                <Link
+                                  href={`/activate?email=${encodeURIComponent(targetGolferEmail || "")}`}
+                                  className="font-bold text-emerald-800 hover:underline"
+                                >
+                                  Enter activation code &rarr;
+                                </Link>
+                              </div>
+                            </>
+                          ) : (
+                            <>
+                              <p className="text-[10px] text-emerald-700 leading-relaxed">
+                                Follow the link in your email to set a secure password and enter your player dashboard.
+                              </p>
+                              <div className="pt-0.5">
+                                <Link
+                                  href={`/activate?email=${encodeURIComponent(targetGolferEmail || "")}`}
+                                  className="text-[11px] font-bold text-emerald-900 hover:underline inline-flex items-center gap-1"
+                                >
+                                  Have an activation code? Enter it here &rarr;
+                                </Link>
+                              </div>
+                            </>
                           )}
-                          <div className="pt-0.5">
-                            <Link
-                              href={`/activate?email=${encodeURIComponent(targetGolferEmail || "")}`}
-                              className="text-[11px] font-bold text-emerald-900 hover:underline inline-flex items-center gap-1"
-                            >
-                              Have an activation code? Enter it here →
-                            </Link>
-                          </div>
                         </div>
                       )}
 
