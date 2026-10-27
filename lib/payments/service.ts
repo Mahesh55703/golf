@@ -60,19 +60,50 @@ export async function expireStalePendingRegistrations(tournamentId: string) {
   const expiryThreshold = new Date(Date.now() - PAYMENT_RESERVATION_TIMEOUT_MINUTES * 60 * 1000);
 
   // Find registrations that are PENDING and UNPAID and older than threshold
-  await prisma.registration.updateMany({
+  const staleRegistrations = await prisma.registration.findMany({
     where: {
       tournamentId,
       status: RegistrationStatus.PENDING,
       paymentStatus: PaymentStatus.UNPAID,
       registeredAt: { lt: expiryThreshold },
     },
-    data: {
-      status: RegistrationStatus.CANCELLED,
-      cancelledAt: new Date(),
-      notes: "Auto-cancelled: Registration checkout expired without payment.",
+    select: {
+      id: true,
+      golferId: true,
+      tournamentId: true,
     },
   });
+
+  for (const stale of staleRegistrations) {
+    try {
+      // Check if a CANCELLED record already exists for this (tournamentId, golferId)
+      // to avoid violating @@unique([tournamentId, golferId, status])
+      const existingCancelled = await prisma.registration.findFirst({
+        where: {
+          tournamentId: stale.tournamentId,
+          golferId: stale.golferId,
+          status: RegistrationStatus.CANCELLED,
+        },
+      });
+
+      if (existingCancelled) {
+        await prisma.registration.delete({
+          where: { id: stale.id },
+        });
+      } else {
+        await prisma.registration.update({
+          where: { id: stale.id },
+          data: {
+            status: RegistrationStatus.CANCELLED,
+            cancelledAt: new Date(),
+            notes: "Auto-cancelled: Registration checkout expired without payment.",
+          },
+        });
+      }
+    } catch (err) {
+      console.warn("[expireStalePendingRegistrations] Failed to expire registration:", stale.id, err);
+    }
+  }
 }
 
 /**

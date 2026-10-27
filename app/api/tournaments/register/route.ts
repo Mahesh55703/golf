@@ -183,7 +183,7 @@ export async function POST(req: NextRequest) {
         });
       }
 
-      // 8. Prevent duplicate ACTIVE registration
+      // 8. Prevent duplicate ACTIVE registration or update unfinalized pending entry
       const existingActiveRegistration = await tx.registration.findFirst({
         where: {
           tournamentId: tournament.id,
@@ -192,8 +192,50 @@ export async function POST(req: NextRequest) {
         },
       });
 
+      const hasFee = Number(tournament.entryFee) > 0;
+
       if (existingActiveRegistration) {
-        throw new Error("ALREADY_REGISTERED");
+        if (existingActiveRegistration.status === RegistrationStatus.CONFIRMED) {
+          throw new Error("ALREADY_REGISTERED");
+        }
+
+        // If registration is PENDING and UNPAID, update it with latest division/notes
+        // and allow the user to proceed to checkout
+        const updatedRegistration = await tx.registration.update({
+          where: { id: existingActiveRegistration.id },
+          data: {
+            divisionId: validatedDivisionId,
+            handicapSnapshot: handicapIndex !== null && handicapIndex !== undefined ? handicapIndex : null,
+            notes: notes ? notes.trim() : null,
+          },
+          include: {
+            tournament: {
+              select: {
+                name: true,
+                startDate: true,
+                endDate: true,
+                hostClub: { select: { name: true } },
+              },
+            },
+            division: {
+              select: {
+                name: true,
+              },
+            },
+            golfer: {
+              select: {
+                id: true,
+                firstName: true,
+                lastName: true,
+                email: true,
+                isEmailVerified: true,
+                passwordHash: true,
+              },
+            },
+          },
+        });
+
+        return { registration: updatedRegistration, hasFee };
       }
 
       // 9. Generate unique reference number with retry
@@ -215,7 +257,6 @@ export async function POST(req: NextRequest) {
       }
 
       // 10. Determine initial lifecycle status based on tournament entry fee
-      const hasFee = Number(tournament.entryFee) > 0;
       const initialStatus = hasFee ? RegistrationStatus.PENDING : RegistrationStatus.CONFIRMED;
       const initialPaymentStatus = hasFee ? PaymentStatus.UNPAID : PaymentStatus.FREE_ENTRY;
 
