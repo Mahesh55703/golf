@@ -19,6 +19,7 @@ import {
   Trophy,
   Landmark,
   CheckCircle,
+  BarChart3,
 } from "lucide-react";
 
 interface AdminUser {
@@ -94,6 +95,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     { name: "Scoring & Results", href: "/admin/scoring", icon: CheckCircle },
     { name: "Clubs", href: "/admin/clubs", icon: Landmark },
     { name: "Registrations", href: "/admin/registrations", icon: UserCheck },
+    { name: "Financial Reports", href: "/admin/reports/financial", icon: BarChart3 },
     { name: "Website Media", href: "/admin/media", icon: ImageIcon },
     { name: "Media Library", href: "/admin/media-library", icon: FolderKanban },
     { name: "Gallery Manager", href: "/admin/gallery", icon: Sparkles },

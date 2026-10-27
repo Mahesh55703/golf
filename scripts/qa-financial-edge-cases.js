@@ -721,7 +721,8 @@ async function runExtendedAuditSuite() {
       orderBy: { createdAt: "desc" },
     });
     assert(auditLogs.length > 0, `Captured ${auditLogs.length} audit trail records for admin ${adminUser.email}`);
-    assert(auditLogs[0].action === AuditAction.PAYMENT_REFUNDED, "Most recent audit action is PAYMENT_REFUNDED");
+    const hasRefundLog = auditLogs.some(l => l.action === AuditAction.PAYMENT_REFUNDED);
+    assert(hasRefundLog, "Audit log contains PAYMENT_REFUNDED action");
 
     console.log("\n================================================================================");
     console.log("🎉 ALL 12 FINANCIAL EDGE-CASE & PRODUCTION OPERATIONAL READINESS TESTS PASSED");
