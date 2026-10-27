@@ -50,10 +50,17 @@ const {
 
 const prisma = new PrismaClient();
 
+class AssertionError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = "AssertionError";
+  }
+}
+
 function assert(condition, message) {
   if (!condition) {
     console.error(`❌ FAILED ASSERTION: ${message}`);
-    process.exit(1);
+    throw new AssertionError(message);
   }
   console.log(`  ✓ ${message}`);
 }
@@ -294,6 +301,9 @@ async function runTestSuite() {
     golfers: [],
     clubs: [],
   };
+
+  let testError = null;
+  let cleanupError = null;
 
   try {
     // -------------------------------------------------------------
@@ -804,45 +814,86 @@ async function runTestSuite() {
     console.log("🎉 ALL 16 FINANCIAL AUDIT & REPORTING CHECKS PASSED SUCCESSFULLY");
     console.log("================================================================================\n");
   } catch (err) {
-    console.error("Test execution failure:", err);
-    process.exit(1);
+    testError = err;
+    console.error("\n❌ Test execution failed:", err.message || err);
   } finally {
     // -------------------------------------------------------------
     // Cleanup: Clean up all isolated QA fixtures
     // -------------------------------------------------------------
     console.log("[Cleanup: Cleaning up isolated fixtures]");
+    const cleanupErrors = [];
+    const cleanupStep = async (stepName, action) => {
+      try {
+        await action();
+      } catch (err) {
+        cleanupErrors.push({ step: stepName, error: err });
+        console.warn(`⚠️ Cleanup failed for ${stepName}:`, err.message || err);
+      }
+    };
+
     try {
       if (fixtureIds.payments.length > 0) {
-        await prisma.payment.deleteMany({
-          where: { id: { in: fixtureIds.payments } },
-        });
+        await cleanupStep("payments", () =>
+          prisma.payment.deleteMany({
+            where: { id: { in: fixtureIds.payments } },
+          })
+        );
       }
       if (fixtureIds.registrations.length > 0) {
-        await prisma.registration.deleteMany({
-          where: { id: { in: fixtureIds.registrations } },
-        });
+        await cleanupStep("registrations", () =>
+          prisma.registration.deleteMany({
+            where: { id: { in: fixtureIds.registrations } },
+          })
+        );
       }
       if (fixtureIds.tournaments.length > 0) {
-        await prisma.tournament.deleteMany({
-          where: { id: { in: fixtureIds.tournaments } },
-        });
+        await cleanupStep("tournaments", () =>
+          prisma.tournament.deleteMany({
+            where: { id: { in: fixtureIds.tournaments } },
+          })
+        );
       }
       if (fixtureIds.golfers.length > 0) {
-        await prisma.golferProfile.deleteMany({
-          where: { id: { in: fixtureIds.golfers } },
-        });
+        await cleanupStep("golfers", () =>
+          prisma.golferProfile.deleteMany({
+            where: { id: { in: fixtureIds.golfers } },
+          })
+        );
       }
       if (fixtureIds.clubs.length > 0) {
-        await prisma.club.deleteMany({
-          where: { id: { in: fixtureIds.clubs } },
-        });
+        await cleanupStep("clubs", () =>
+          prisma.club.deleteMany({
+            where: { id: { in: fixtureIds.clubs } },
+          })
+        );
       }
-      console.log("  ✓ Isolated fixtures cleaned up cleanly with zero database residue.");
-    } catch (cleanupErr) {
-      console.warn("Cleanup warning:", cleanupErr.message);
+
+      if (cleanupErrors.length > 0) {
+        cleanupError = new Error(
+          cleanupErrors.map((e) => `${e.step}: ${e.error.message || e.error}`).join("; ")
+        );
+      } else {
+        console.log("  ✓ Isolated fixtures cleaned up cleanly with zero database residue.");
+      }
+    } catch (unhandledCleanupErr) {
+      cleanupError = unhandledCleanupErr;
+      console.warn("⚠️ Unexpected error during cleanup sequence:", unhandledCleanupErr.message || unhandledCleanupErr);
     } finally {
       await prisma.$disconnect();
     }
+  }
+
+  if (testError || cleanupError) {
+    if (testError && cleanupError) {
+      console.error("\n❌ QA suite failed with BOTH test failure AND cleanup failure:");
+      console.error(`  - Test failure: ${testError.message || testError}`);
+      console.error(`  - Cleanup failure: ${cleanupError.message || cleanupError}`);
+    } else if (testError && !cleanupError) {
+      console.error(`\n❌ QA suite failed due to test assertion/execution failure: ${testError.message || testError}`);
+    } else if (cleanupError && !testError) {
+      console.error(`\n❌ QA suite failed due to fixture cleanup failure: ${cleanupError.message || cleanupError}`);
+    }
+    process.exit(1);
   }
 }
 

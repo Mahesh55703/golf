@@ -21,10 +21,17 @@ if (fs.existsSync(envFile)) {
 
 const prisma = new PrismaClient();
 
+class AssertionError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = "AssertionError";
+  }
+}
+
 function assert(condition, message) {
   if (!condition) {
     console.error(`❌ FAILED ASSERTION: ${message}`);
-    process.exit(1);
+    throw new AssertionError(message);
   }
   console.log(`  ✓ ${message}`);
 }
@@ -244,7 +251,7 @@ async function executeRefundWorkflow({
 }
 
 // Webhook simulation handler matching app/api/payments/webhook/route.ts
-async function simulateWebhookArrival({ eventId, eventType, paymentId, refundId, refundAmountMinor, currency = "USD" }) {
+async function simulateWebhookArrival({ eventId, eventType, paymentId, refundId, refundAmountMinor, currency = "USD" }, trackedWebhookIds = null) {
   const existingWebhook = await prisma.paymentWebhookEvent.findUnique({
     where: { eventId },
   });
@@ -261,6 +268,10 @@ async function simulateWebhookArrival({ eventId, eventType, paymentId, refundId,
       processed: false,
     },
   });
+
+  if (trackedWebhookIds && recorded && recorded.id) {
+    trackedWebhookIds.push(recorded.id);
+  }
 
   if (eventType === "refund.processed" || eventType === "refund.created") {
     await prisma.$transaction(async (tx) => {
@@ -368,6 +379,20 @@ async function runExtendedAuditSuite() {
   const runId = Date.now().toString().slice(-6);
   let club, course, tournament, golfer, registration, payment, adminUser;
 
+  const fixtureIds = {
+    webhookEvents: [],
+    payments: [],
+    registrations: [],
+    tournaments: [],
+    courses: [],
+    clubs: [],
+    golfers: [],
+    adminUsers: [],
+  };
+
+  let testError = null;
+  let cleanupError = null;
+
   try {
     // 1. Provision isolated test fixtures
     console.log("Setup: Provisioning isolated test fixtures...");
@@ -379,6 +404,7 @@ async function runExtendedAuditSuite() {
         state: "Karnataka",
       },
     });
+    fixtureIds.clubs.push(club.id);
 
     course = await prisma.golfCourse.create({
       data: {
@@ -389,6 +415,7 @@ async function runExtendedAuditSuite() {
         par: 72,
       },
     });
+    fixtureIds.courses.push(course.id);
 
     tournament = await prisma.tournament.create({
       data: {
@@ -403,6 +430,7 @@ async function runExtendedAuditSuite() {
         fieldCapacity: 10,
       },
     });
+    fixtureIds.tournaments.push(tournament.id);
 
     golfer = await prisma.golferProfile.create({
       data: {
@@ -411,6 +439,7 @@ async function runExtendedAuditSuite() {
         email: `jack.edge.${runId}@golfpulse.test`,
       },
     });
+    fixtureIds.golfers.push(golfer.id);
 
     const golfer2 = await prisma.golferProfile.create({
       data: {
@@ -419,12 +448,14 @@ async function runExtendedAuditSuite() {
         email: `arnold.edge.${runId}@golfpulse.test`,
       },
     });
+    fixtureIds.golfers.push(golfer2.id);
 
+    let createdAdminUser = null;
     adminUser = await prisma.adminUser.findFirst({
       where: { role: AdminRole.SUPER_ADMIN },
     });
     if (!adminUser) {
-      adminUser = await prisma.adminUser.create({
+      createdAdminUser = await prisma.adminUser.create({
         data: {
           email: `admin.edge.${runId}@golfpulse.test`,
           passwordHash: "hash_placeholder",
@@ -432,6 +463,9 @@ async function runExtendedAuditSuite() {
           role: AdminRole.SUPER_ADMIN,
         },
       });
+      adminUser = createdAdminUser;
+      // Track ONLY newly created administrator fixtures, never existing accounts
+      fixtureIds.adminUsers.push(createdAdminUser.id);
     }
 
     registration = await prisma.registration.create({
@@ -445,6 +479,7 @@ async function runExtendedAuditSuite() {
         currency: "USD",
       },
     });
+    fixtureIds.registrations.push(registration.id);
 
     payment = await prisma.payment.create({
       data: {
@@ -459,6 +494,7 @@ async function runExtendedAuditSuite() {
         paidAt: new Date(),
       },
     });
+    fixtureIds.payments.push(payment.id);
 
     assert(true, "Isolated fixtures provisioned cleanly (100.00 USD entry fee paid)");
 
@@ -475,6 +511,8 @@ async function runExtendedAuditSuite() {
         currency: "USD",
       },
     });
+    fixtureIds.registrations.push(regFull.id);
+
     const payFull = await prisma.payment.create({
       data: {
         referenceNumber: `GP-PAY-FULL-${runId}`,
@@ -488,6 +526,7 @@ async function runExtendedAuditSuite() {
         paidAt: new Date(),
       },
     });
+    fixtureIds.payments.push(payFull.id);
 
     const fullResult = await executeRefundWorkflow({
       registrationId: regFull.id,
@@ -626,7 +665,7 @@ async function runExtendedAuditSuite() {
       refundId: testRefundId1,
       refundAmountMinor: 500, // 5.00 USD
       currency: "USD",
-    });
+    }, fixtureIds.webhookEvents);
     assert(hookRes1.processed === true, "refund.processed webhook processed successfully");
 
     // Test 8: Refund creation followed by failure
@@ -640,7 +679,7 @@ async function runExtendedAuditSuite() {
       refundId: testRefundId2,
       refundAmountMinor: 500,
       currency: "USD",
-    });
+    }, fixtureIds.webhookEvents);
     assert(hookRes2.processed === true, "refund.failed webhook recorded cleanly in payment metadata");
 
     const pWithFailure = await prisma.payment.findUnique({ where: { id: payment.id } });
@@ -656,7 +695,7 @@ async function runExtendedAuditSuite() {
       refundId: testRefundId1,
       refundAmountMinor: 500,
       currency: "USD",
-    });
+    }, fixtureIds.webhookEvents);
     assert(dupWebhook.idempotent === true, "Duplicate webhook event delivery intercepted idempotently via eventId constraint");
 
     // Test 10: Webhooks delivered out of order
@@ -684,7 +723,7 @@ async function runExtendedAuditSuite() {
       refundId: `rfd_ooo_${runId}`,
       refundAmountMinor: 1000,
       currency: "USD",
-    });
+    }, fixtureIds.webhookEvents);
 
     const oooPayment = await prisma.payment.findUnique({ where: { id: payment.id } });
     assert(oooPayment.status === TransactionStatus.REFUNDED, "Payment terminal state REFUNDED was preserved against out-of-order webhook");
@@ -727,24 +766,110 @@ async function runExtendedAuditSuite() {
     console.log("\n================================================================================");
     console.log("🎉 ALL 12 FINANCIAL EDGE-CASE & PRODUCTION OPERATIONAL READINESS TESTS PASSED");
     console.log("================================================================================\n");
+  } catch (err) {
+    testError = err;
+    console.error("\n❌ Test execution failed:", err.message || err);
   } finally {
-    console.log("Cleaning up isolated test fixtures...");
-    if (payment) await prisma.payment.deleteMany({ where: { registrationId: registration.id } });
-    if (registration) await prisma.registration.deleteMany({ where: { id: registration.id } });
-    if (golfer) await prisma.golferProfile.deleteMany({ where: { id: golfer.id } });
-    if (tournament) await prisma.tournament.deleteMany({ where: { id: tournament.id } });
-    if (course) await prisma.golfCourse.deleteMany({ where: { id: course.id } });
-    if (club) await prisma.club.deleteMany({ where: { id: club.id } });
-    // Clean up any test webhook events created
-    await prisma.paymentWebhookEvent.deleteMany({
-      where: { eventId: { contains: runId } },
-    });
-    console.log("✓ Fixtures and webhook events cleaned up cleanly with zero database pollution.\n");
-    await prisma.$disconnect();
+    console.log("[Cleanup: Cleaning up isolated fixtures]");
+    const cleanupErrors = [];
+    const cleanupStep = async (stepName, action) => {
+      try {
+        await action();
+      } catch (err) {
+        cleanupErrors.push({ step: stepName, error: err });
+        console.warn(`⚠️ Cleanup failed for ${stepName}:`, err.message || err);
+      }
+    };
+
+    try {
+      if (fixtureIds.webhookEvents.length > 0) {
+        await cleanupStep("webhookEvents", () =>
+          prisma.paymentWebhookEvent.deleteMany({
+            where: { id: { in: fixtureIds.webhookEvents } },
+          })
+        );
+      }
+      if (fixtureIds.payments.length > 0) {
+        await cleanupStep("payments", () =>
+          prisma.payment.deleteMany({
+            where: { id: { in: fixtureIds.payments } },
+          })
+        );
+      }
+      if (fixtureIds.registrations.length > 0) {
+        await cleanupStep("registrations", () =>
+          prisma.registration.deleteMany({
+            where: { id: { in: fixtureIds.registrations } },
+          })
+        );
+      }
+      if (fixtureIds.tournaments.length > 0) {
+        await cleanupStep("tournaments", () =>
+          prisma.tournament.deleteMany({
+            where: { id: { in: fixtureIds.tournaments } },
+          })
+        );
+      }
+      if (fixtureIds.courses.length > 0) {
+        await cleanupStep("courses", () =>
+          prisma.golfCourse.deleteMany({
+            where: { id: { in: fixtureIds.courses } },
+          })
+        );
+      }
+      if (fixtureIds.clubs.length > 0) {
+        await cleanupStep("clubs", () =>
+          prisma.club.deleteMany({
+            where: { id: { in: fixtureIds.clubs } },
+          })
+        );
+      }
+      if (fixtureIds.golfers.length > 0) {
+        await cleanupStep("golfers", () =>
+          prisma.golferProfile.deleteMany({
+            where: { id: { in: fixtureIds.golfers } },
+          })
+        );
+      }
+      if (fixtureIds.adminUsers.length > 0) {
+        // Safe deletion: only delete admins that were genuinely created by this run
+        await cleanupStep("adminUsers", () =>
+          prisma.adminUser.deleteMany({
+            where: {
+              id: { in: fixtureIds.adminUsers },
+              email: `admin.edge.${runId}@golfpulse.test`,
+            },
+          })
+        );
+      }
+
+      if (cleanupErrors.length > 0) {
+        cleanupError = new Error(
+          cleanupErrors.map((e) => `${e.step}: ${e.error.message || e.error}`).join("; ")
+        );
+      } else {
+        console.log("  ✓ Isolated fixtures cleaned up cleanly with zero database residue.");
+      }
+    } catch (unhandledCleanupErr) {
+      cleanupError = unhandledCleanupErr;
+      console.warn("⚠️ Unexpected error during cleanup sequence:", unhandledCleanupErr.message || unhandledCleanupErr);
+    } finally {
+      await prisma.$disconnect();
+    }
+  }
+
+  if (testError || cleanupError) {
+    if (testError && cleanupError) {
+      console.error("\n❌ QA suite failed with BOTH test failure AND cleanup failure:");
+      console.error(`  - Test failure: ${testError.message || testError}`);
+      console.error(`  - Cleanup failure: ${cleanupError.message || cleanupError}`);
+    } else if (testError && !cleanupError) {
+      console.error(`\n❌ QA suite failed due to test assertion/execution failure: ${testError.message || testError}`);
+    } else if (cleanupError && !testError) {
+      console.error(`\n❌ QA suite failed due to fixture cleanup failure: ${cleanupError.message || cleanupError}`);
+    }
+    process.exit(1);
   }
 }
 
-runExtendedAuditSuite().catch((err) => {
-  console.error("QA Test execution failed:", err);
-  process.exit(1);
-});
+runExtendedAuditSuite();
