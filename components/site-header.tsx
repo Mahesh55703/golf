@@ -2,6 +2,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import { useState, useEffect } from "react";
+import { usePathname } from "next/navigation";
 import { Menu, X, Phone, Facebook, Twitter, Instagram, Youtube, Search, User, Bell, LogOut, ChevronDown } from "lucide-react";
 
 const navItems = [
@@ -16,6 +17,7 @@ const navItems = [
 ];
 
 export function SiteHeader() {
+  const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [golfer, setGolfer] = useState<{ id: string; firstName: string; lastName: string; email: string } | null>(null);
@@ -30,14 +32,22 @@ export function SiteHeader() {
           if (data.authenticated && data.golfer) {
             setGolfer(data.golfer);
             setUnreadCount(data.unreadNotifications || 0);
+          } else {
+            setGolfer(null);
+            setUnreadCount(0);
           }
+        } else {
+          setGolfer(null);
+          setUnreadCount(0);
         }
       } catch {
         // Unauthenticated visitor
+        setGolfer(null);
+        setUnreadCount(0);
       }
     }
     checkAuth();
-  }, []);
+  }, [pathname]);
 
   const handleLogout = async () => {
     try {
