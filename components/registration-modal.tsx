@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import {
   Trophy,
@@ -85,6 +85,45 @@ export function RegistrationModal({
   const [activationMessage, setActivationMessage] = useState<string | null>(null);
   const [activationError, setActivationError] = useState<string | null>(null);
   const [previewActivationLink, setPreviewActivationLink] = useState<string | null>(null);
+  const [currentUser, setCurrentUser] = useState<any>(null);
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    let isMounted = true;
+    async function loadCurrentUser() {
+      try {
+        const res = await fetch("/api/golfer/auth/me");
+        if (res.ok) {
+          const data = await res.json();
+          if (isMounted && data.authenticated && data.golfer) {
+            setCurrentUser(data.golfer);
+            setFormData((prev) => ({
+              ...prev,
+              firstName: prev.firstName || data.golfer.firstName || "",
+              lastName: prev.lastName || data.golfer.lastName || "",
+              email: prev.email || data.golfer.email || "",
+              phone: prev.phone || data.golfer.phone || "",
+              country: prev.country || data.golfer.country || "India",
+              homeClub: prev.homeClub || data.golfer.homeClub || "",
+              handicapIndex:
+                prev.handicapIndex ||
+                (data.golfer.handicapIndex !== null && data.golfer.handicapIndex !== undefined
+                  ? String(data.golfer.handicapIndex)
+                  : ""),
+            }));
+          }
+        }
+      } catch {
+        // Visitor not logged in
+      }
+    }
+
+    loadCurrentUser();
+    return () => {
+      isMounted = false;
+    };
+  }, [isOpen]);
 
   const handleRequestActivation = async () => {
     if (requestingActivation || activationRequested) return;
@@ -387,6 +426,21 @@ export function RegistrationModal({
                     : "Free Entry"}
                 </div>
               </div>
+
+              {/* Logged in golfer banner */}
+              {currentUser && (
+                <div className="p-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-[11px] flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <ShieldCheck size={14} className="text-emerald-600 shrink-0" />
+                    <span>
+                      Logged in as <strong>{currentUser.firstName} {currentUser.lastName}</strong>
+                    </span>
+                  </div>
+                  <span className="text-[10px] text-emerald-700 font-semibold bg-emerald-100/70 px-2 py-0.5 rounded-full">
+                    Profile Prefilled
+                  </span>
+                </div>
+              )}
 
               {/* Names */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -789,7 +843,7 @@ export function RegistrationModal({
                   </div>
                 </div>
 
-                {/* Account Activation CTA */}
+                {/* Account Activation / Dashboard CTA */}
                 <div className="p-4 rounded-2xl bg-[#0e2138]/5 border border-[#c29b4e]/30 max-w-sm mx-auto text-left text-xs space-y-2.5">
                   <div className="flex items-start gap-2">
                     <div className="p-1 rounded-md bg-[#c29b4e]/20 text-[#c29b4e] mt-0.5 shrink-0">
@@ -798,14 +852,24 @@ export function RegistrationModal({
                     <div>
                       <h4 className="font-bold text-slate-900">Track your tournament & performance</h4>
                       <p className="text-[11px] text-slate-500 mt-0.5 leading-relaxed">
-                        {isAlreadyActivated
+                        {currentUser
+                          ? "Your tournament entry is linked directly to your active golfer account. View this entry, scorecards, and live leaderboards in your dashboard."
+                          : isAlreadyActivated
                           ? "Your GolfPulse player account is active. Sign in to view this entry, your scorecards, and live leaderboards."
                           : "Activate your GolfPulse account to view all registrations, submit scorecards, and track live tournament leaderboards."}
                       </p>
                     </div>
                   </div>
 
-                  {isAlreadyActivated ? (
+                  {currentUser ? (
+                    <Link
+                      href="/dashboard/tournaments"
+                      className="w-full mt-2 py-2.5 px-3 rounded-xl bg-gradient-to-r from-[#0e2138] to-[#1a365d] text-white font-bold text-xs flex items-center justify-center gap-1.5 hover:brightness-110 active:scale-95 transition-all text-center shadow-xs"
+                    >
+                      <span>Go to Golfer Dashboard</span>
+                      <ArrowRight size={13} className="text-[#dfbf77]" />
+                    </Link>
+                  ) : isAlreadyActivated ? (
                     <Link
                       href={`/login?email=${encodeURIComponent(targetGolferEmail || "")}`}
                       className="w-full mt-2 py-2 px-3 rounded-xl bg-gradient-to-r from-[#c29b4e] to-[#dfbf77] text-[#0e2138] font-bold text-xs flex items-center justify-center gap-1.5 hover:brightness-105 active:scale-95 transition-all text-center shadow-xs"

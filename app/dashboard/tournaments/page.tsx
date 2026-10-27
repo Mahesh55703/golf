@@ -14,6 +14,10 @@ import {
   ChevronRight,
   ShieldCheck,
   CreditCard,
+  UserMinus,
+  X,
+  RotateCcw,
+  DollarSign,
 } from "lucide-react";
 
 interface TournamentItem {
@@ -70,22 +74,67 @@ export default function MyTournamentsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    async function loadTournaments() {
-      try {
-        const res = await fetch("/api/golfer/tournaments");
-        if (!res.ok) throw new Error("Failed to load tournaments");
-        const json = await res.json();
-        setTournaments(json.tournaments || []);
-        setCounts(json.counts || { upcoming: 0, in_progress: 0, past: 0, cancelled: 0 });
-      } catch (err: any) {
-        setError(err.message || "Failed to load tournament registrations.");
-      } finally {
-        setLoading(false);
-      }
+  // Withdrawal & Refund Modal State
+  const [withdrawingItem, setWithdrawingItem] = useState<TournamentItem | null>(null);
+  const [withdrawReason, setWithdrawReason] = useState("");
+  const [isWithdrawing, setIsWithdrawing] = useState(false);
+  const [withdrawError, setWithdrawError] = useState<string | null>(null);
+  const [withdrawSuccess, setWithdrawSuccess] = useState<string | null>(null);
+
+  const fetchTournaments = async () => {
+    try {
+      const res = await fetch("/api/golfer/tournaments");
+      if (!res.ok) throw new Error("Failed to load tournaments");
+      const json = await res.json();
+      setTournaments(json.tournaments || []);
+      setCounts(json.counts || { upcoming: 0, in_progress: 0, past: 0, cancelled: 0 });
+    } catch (err: any) {
+      setError(err.message || "Failed to load tournament registrations.");
+    } finally {
+      setLoading(false);
     }
-    loadTournaments();
+  };
+
+  useEffect(() => {
+    fetchTournaments();
   }, []);
+
+  const handleConfirmWithdraw = async () => {
+    if (!withdrawingItem) return;
+    setIsWithdrawing(true);
+    setWithdrawError(null);
+    setWithdrawSuccess(null);
+
+    try {
+      const res = await fetch("/api/golfer/tournaments/withdraw", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          registrationId: withdrawingItem.id,
+          reason: withdrawReason.trim() || "Voluntary withdrawal by player",
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        setWithdrawError(data.error || "Failed to process tournament withdrawal.");
+        return;
+      }
+
+      setWithdrawSuccess(data.message || "Withdrawal completed successfully.");
+      await fetchTournaments();
+
+      setTimeout(() => {
+        setWithdrawingItem(null);
+        setWithdrawReason("");
+        setWithdrawSuccess(null);
+      }, 1800);
+    } catch {
+      setWithdrawError("Network error while processing withdrawal. Please try again.");
+    } finally {
+      setIsWithdrawing(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -234,21 +283,37 @@ export default function MyTournamentsPage() {
                   </p>
                 </div>
 
-                <div className="flex items-center gap-3">
+                <div className="flex flex-wrap items-center gap-2.5">
                   <Link
                     href={`/tournaments/${item.tournament.slug}`}
-                    className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-semibold text-xs transition-all flex items-center gap-1.5"
+                    className="px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-semibold text-xs transition-all flex items-center gap-1.5"
                   >
                     <span>View Tournament</span>
                     <ExternalLink size={13} />
                   </Link>
                   <Link
                     href="/leaderboards"
-                    className="px-4 py-2 rounded-xl bg-emerald-50 text-emerald-800 hover:bg-emerald-100 font-semibold text-xs transition-all flex items-center gap-1.5"
+                    className="px-3.5 py-2 rounded-xl bg-emerald-50 text-emerald-800 hover:bg-emerald-100 font-semibold text-xs transition-all flex items-center gap-1.5"
                   >
                     <Trophy size={13} />
                     <span>Leaderboard</span>
                   </Link>
+
+                  {item.category === "upcoming" && item.status !== "CANCELLED" && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setWithdrawingItem(item);
+                        setWithdrawReason("");
+                        setWithdrawError(null);
+                        setWithdrawSuccess(null);
+                      }}
+                      className="px-3.5 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200/80 font-semibold text-xs transition-all flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <UserMinus size={13} />
+                      <span>Withdraw {item.paymentStatus === "PAID" && item.entryFeePaid > 0 ? "& Refund" : ""}</span>
+                    </button>
+                  )}
                 </div>
               </div>
 
@@ -318,6 +383,133 @@ export default function MyTournamentsPage() {
               )}
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Tournament Withdrawal & Refund Modal */}
+      {withdrawingItem && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-200 text-slate-800 space-y-4 animate-in fade-in zoom-in-95 duration-150">
+            {/* Header */}
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2 text-rose-700">
+                <div className="p-2 rounded-xl bg-rose-50 text-rose-600">
+                  <UserMinus size={18} />
+                </div>
+                <div>
+                  <h3 className="font-bold text-base text-slate-900 leading-tight">Tournament Withdrawal</h3>
+                  <span className="text-[10px] text-slate-400 font-mono">Ref: {withdrawingItem.referenceNumber}</span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!isWithdrawing) {
+                    setWithdrawingItem(null);
+                    setWithdrawError(null);
+                    setWithdrawSuccess(null);
+                  }
+                }}
+                disabled={isWithdrawing}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            {/* Event Summary */}
+            <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-2xl space-y-1.5 text-xs">
+              <span className="font-bold text-slate-900 block text-sm">{withdrawingItem.tournament.name}</span>
+              <p className="text-slate-500 text-[11px]">{withdrawingItem.tournament.hostClub}</p>
+              <div className="flex items-center justify-between pt-1 border-t border-slate-200/80 text-[11px]">
+                <span className="text-slate-500">Dates:</span>
+                <span className="font-semibold text-slate-800">
+                  {new Date(withdrawingItem.tournament.startDate).toLocaleDateString()} - {new Date(withdrawingItem.tournament.endDate).toLocaleDateString()}
+                </span>
+              </div>
+              <div className="flex items-center justify-between text-[11px]">
+                <span className="text-slate-500">Division:</span>
+                <span className="font-semibold text-emerald-800">{withdrawingItem.division.name}</span>
+              </div>
+            </div>
+
+            {/* Refund Policy Information */}
+            {withdrawingItem.paymentStatus === "PAID" && withdrawingItem.entryFeePaid > 0 ? (
+              <div className="p-3.5 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-900 text-xs space-y-1">
+                <div className="flex items-center gap-2 font-bold text-emerald-800">
+                  <RotateCcw size={15} className="text-emerald-600" />
+                  <span>Full Refund Eligible: {withdrawingItem.entryFeePaid.toFixed(2)} {withdrawingItem.currency}</span>
+                </div>
+                <p className="text-[11px] text-emerald-700 leading-relaxed">
+                  Upon confirming withdrawal, a full refund of <strong>{withdrawingItem.entryFeePaid.toFixed(2)} {withdrawingItem.currency}</strong> will be initiated directly to your original payment method.
+                </p>
+              </div>
+            ) : (
+              <div className="p-3 rounded-2xl bg-slate-50 border border-slate-200 text-slate-600 text-xs">
+                <p className="text-[11px]">
+                  This registration was complimentary or unpaid. Confirming withdrawal will cancel your entry slot and notify tournament organizers.
+                </p>
+              </div>
+            )}
+
+            {/* Reason input */}
+            <div className="space-y-1.5 text-xs">
+              <label className="block font-bold text-slate-700">Reason for Withdrawal (Optional)</label>
+              <textarea
+                value={withdrawReason}
+                onChange={(e) => setWithdrawReason(e.target.value)}
+                placeholder="e.g. Schedule conflict, injury, travel delay..."
+                rows={2}
+                disabled={isWithdrawing}
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 text-xs focus:outline-none focus:ring-2 focus:ring-[#c29b4e]/30 focus:border-[#c29b4e]"
+              />
+            </div>
+
+            {/* Error & Success Feedback */}
+            {withdrawError && (
+              <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs flex items-center gap-2">
+                <AlertCircle size={15} className="text-rose-600 shrink-0" />
+                <span>{withdrawError}</span>
+              </div>
+            )}
+
+            {withdrawSuccess && (
+              <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs flex items-center gap-2">
+                <CheckCircle2 size={15} className="text-emerald-600 shrink-0" />
+                <span>{withdrawSuccess}</span>
+              </div>
+            )}
+
+            {/* Action Buttons */}
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setWithdrawingItem(null)}
+                disabled={isWithdrawing}
+                className="px-4 py-2.5 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 font-semibold text-xs transition-colors cursor-pointer disabled:opacity-50"
+              >
+                Keep Entry
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmWithdraw}
+                disabled={isWithdrawing}
+                className="px-4 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs transition-colors shadow-sm flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+              >
+                {isWithdrawing ? (
+                  <>
+                    <Loader2 size={13} className="animate-spin" />
+                    <span>Processing Withdrawal...</span>
+                  </>
+                ) : (
+                  <>
+                    <UserMinus size={13} />
+                    <span>Confirm Withdrawal {withdrawingItem.paymentStatus === "PAID" && withdrawingItem.entryFeePaid > 0 ? "& Refund" : ""}</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

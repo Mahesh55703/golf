@@ -440,7 +440,7 @@ export async function finalizePaymentVerification(params: {
 
 export interface InitiateRefundInput {
   registrationId: string;
-  adminId: string;
+  adminId?: string;
   adminEmail: string;
   reason: string;
   amount?: number; // Major unit (e.g. 50.00). If omitted, full refund of remaining balance
